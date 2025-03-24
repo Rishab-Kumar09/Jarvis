@@ -14,6 +14,7 @@ JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's 
 - 🌤️ **Weather Information**: Provides weather updates for any city
 - ⏰ **Time Information**: Tells the current time
 - 🎯 **Interruption Handling**: Can be interrupted mid-speech with "stop" command
+- 📱 **Remote Control**: Control JARVIS from your phone or any device through a web interface
 
 ## Requirements
 
@@ -40,10 +41,18 @@ JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's 
 
 ## Usage
 
-Run JARVIS:
+### Voice Control
+Run JARVIS with voice control:
 ```bash
 python jarvis.py
 ```
+
+### Remote Control
+Run JARVIS with web interface for remote control:
+```bash
+python web_interface.py
+```
+Then open `http://your_computer_ip:5000` in your phone's browser to access the remote control interface.
 
 ### Example Commands
 
@@ -55,6 +64,8 @@ python jarvis.py
 - "What time is it?"
 - "Stop" (interrupts current speech)
 
+All these commands work both through voice and the remote web interface.
+
 ## Configuration
 
 JARVIS can be configured through environment variables in the `.env` file:
@@ -63,6 +74,21 @@ JARVIS can be configured through environment variables in the `.env` file:
 - `ELEVENLABS_API_KEY`: Your ElevenLabs API key
 - `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID
 - `OPENWEATHER_API_KEY`: Your OpenWeather API key (optional)
+
+## Remote Control Interface
+
+The web interface provides:
+- Text input for sending any command to JARVIS
+- Quick action buttons for common commands
+- Real-time response display
+- Mobile-friendly design
+- Works on any device with a web browser
+
+To use the remote control:
+1. Run `python web_interface.py` on your computer
+2. Find your computer's IP address (use `ipconfig` on Windows)
+3. On your phone, open a browser and go to `http://your_computer_ip:5000`
+4. Enter commands or use quick action buttons to control JARVIS
 
 ## Contributing
 

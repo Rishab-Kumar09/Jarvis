@@ -83,6 +83,63 @@ class Jarvis:
         self.active_note_path = None  # Store the path of the active note
         self.last_response = None  # Store the last response from GPT or other commands
 
+        # Dictionary mapping common app names to their process names or paths
+        self.app_commands = {
+            "chrome": {
+                "command": "chrome",
+                "paths": [
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+                ]
+            },
+            "firefox": {
+                "command": "firefox",
+                "paths": [
+                    "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+                    "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe"
+                ]
+            },
+            "edge": {
+                "command": "msedge",
+                "paths": [
+                    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+                    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+                ]
+            },
+            "store": {
+                "command": "explorer.exe",
+                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"]
+            },
+            "windows store": {
+                "command": "explorer.exe",
+                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"]
+            },
+            "app store": {
+                "command": "explorer.exe",
+                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"]
+            },
+            "microsoft store": {
+                "command": "explorer.exe",
+                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"]
+            },
+            "notepad": "notepad.exe",
+            "word": "winword.exe",
+            "excel": "excel.exe",
+            "powerpoint": "powerpnt.exe",
+            "calculator": "calc.exe",
+            "paint": "mspaint.exe",
+            "cmd": "cmd.exe",
+            "command prompt": {
+                "command": "cmd.exe",
+                "args": []
+            },
+            "command prompt as admin": {
+                "command": "cmd.exe",
+                "args": ["/c", "start", "cmd.exe", "/k", "cd /d %userprofile%"],
+                "admin": True
+            }
+        }
+
     def adjust_for_ambient_noise(self, source, duration=1):
         """Adjust recognizer energy threshold based on ambient noise"""
         print("Adjusting for ambient noise. Please wait...")
@@ -218,72 +275,60 @@ class Jarvis:
             return f"Error fetching weather: {e}"
 
     def open_application(self, app_name):
-        """Open common applications with enhanced handling"""
+        """Open common applications with enhanced handling and thorough system search"""
         try:
             if self.system_info == "Windows":
-                # Dictionary mapping common app names to their process info
-                app_commands = {
-                    "notepad": "notepad.exe",
-                    "calculator": "calc.exe",
-                    "chrome": {
-                        "command": "chrome.exe",
-                        "args": []
-                    },
-                    "google": {
-                        "command": "chrome.exe",
-                        "args": ["https://www.google.com"]
-                    },
-                    "firefox": "firefox.exe",
-                    "explorer": "explorer.exe",
-                    "word": "winword.exe",
-                    "excel": "excel.exe",
-                    "powerpoint": "powerpnt.exe",
-                    "edge": "msedge.exe",
-                    "vlc": "vlc.exe",
-                    "spotify": "spotify.exe",
-                    "discord": "discord.exe",
-                    "skype": "skype.exe",
-                    "teams": "teams.exe",
-                    "vscode": "code.exe",
-                    "paint": "mspaint.exe",
-                    "cmd": {
-                        "command": "cmd.exe",
-                        "args": ["/k", "cd /d %userprofile%"]
-                    },
-                    "command prompt": {
-                        "command": "cmd.exe",
-                        "args": ["/k", "cd /d %userprofile%"]
-                    },
-                    "command prompt as admin": {
-                        "command": "powershell.exe",
-                        "args": ["Start-Process", "cmd.exe", "-Verb", "RunAs"]
-                    }
-                }
-                
                 app_key = app_name.lower()
                 
-                # First try known applications
-                if app_key in app_commands:
-                    app_info = app_commands[app_key]
+                # First check if it's a known application
+                if app_key in self.app_commands:
+                    app_info = self.app_commands[app_key]
                     
                     if isinstance(app_info, str):
-                        # Simple application launch
-                        subprocess.Popen([app_info])
+                        try:
+                            subprocess.Popen([app_info])
+                            return f"I'm opening {app_name} for you now."
+                        except FileNotFoundError:
+                            return f"I found {app_name} in my known applications list, but I couldn't locate it on your system. Let me try searching for it."
                     else:
-                        # Complex launch with arguments
-                        subprocess.Popen([app_info["command"]] + app_info["args"])
-                    
-                    return f"Opening {app_name}"
-                
-                # For unknown applications, try common paths and executable names
-                possible_exes = [
-                    f"{app_key}.exe",
-                    app_key,
-                    f"{app_key}launcher.exe",
-                    f"{app_key}-launcher.exe"
+                        # Try specific paths first
+                        if "paths" in app_info:
+                            for path in app_info["paths"]:
+                                if os.path.exists(path):
+                                    try:
+                                        subprocess.Popen([path] + app_info.get("args", []))
+                                        return f"I'm opening {app_name} for you now."
+                                    except Exception as e:
+                                        print(f"Failed to open {path}: {e}")
+                                        continue
+                        
+                        # Try command directly
+                        try:
+                            subprocess.Popen([app_info["command"]] + app_info.get("args", []))
+                            return f"I'm opening {app_name} for you now."
+                        except FileNotFoundError:
+                            return f"I found {app_name} in my known applications list, but I couldn't locate it. Let me try searching your system."
+
+                # If we get here, either the app wasn't in known list or the known paths failed
+                searching_message = f"I'm searching your system for {app_name}. This might take a moment."
+                print(searching_message)
+
+                # Additional system paths to search
+                system_paths = [
+                    os.environ.get('SYSTEMROOT', 'C:\\Windows'),
+                    os.path.join(os.environ.get('SYSTEMROOT', 'C:\\Windows'), 'System32'),
+                    os.path.join(os.environ.get('SYSTEMROOT', 'C:\\Windows'), 'SysWOW64')
                 ]
                 
-                # Common installation paths
+                # User-specific paths
+                user_paths = [
+                    os.path.expanduser('~'),
+                    os.path.join(os.path.expanduser('~'), 'Desktop'),
+                    os.path.join(os.path.expanduser('~'), 'Documents'),
+                    os.path.join(os.path.expanduser('~'), 'Downloads')
+                ]
+                
+                # Program installation paths
                 program_paths = [
                     os.environ.get('PROGRAMFILES', 'C:\\Program Files'),
                     os.environ.get('PROGRAMFILES(X86)', 'C:\\Program Files (x86)'),
@@ -291,44 +336,113 @@ class Jarvis:
                     os.environ.get('APPDATA', ''),
                     os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs'),
                     os.path.join(os.environ.get('APPDATA', ''), 'Programs'),
+                    'C:\\Program Files\\WindowsApps',  # Windows Store apps
+                    'C:\\Users\\Public'
                 ]
                 
-                # Try to find and launch the application
-                for exe_name in possible_exes:
-                    # First try if the exe is in PATH
+                # Add all drive letters
+                import string
+                drives = [f"{d}:\\" for d in string.ascii_uppercase if os.path.exists(f"{d}:\\")]
+                
+                # Possible file extensions to search for
+                extensions = [
+                    '.exe', '.lnk', '.bat', '.cmd', '.msc',  # Executables and shortcuts
+                    '.txt', '.doc', '.docx', '.pdf',         # Documents
+                    '.xls', '.xlsx', '.ppt', '.pptx',        # Office files
+                    '.jpg', '.jpeg', '.png', '.gif',         # Images
+                    '.mp3', '.mp4', '.avi', '.mkv'          # Media files
+                ]
+                
+                # Generate possible filenames
+                possible_names = [
+                    app_key,
+                    f"{app_key}launcher",
+                    f"{app_key}-launcher",
+                    f"launch{app_key}",
+                    f"start{app_key}",
+                    f"{app_key}start"
+                ]
+                
+                # Search in Windows Start Menu
+                start_menu_paths = [
+                    os.path.join(os.environ.get('PROGRAMDATA', 'C:\\ProgramData'), 'Microsoft\\Windows\\Start Menu\\Programs'),
+                    os.path.join(os.environ.get('APPDATA', ''), 'Microsoft\\Windows\\Start Menu\\Programs')
+                ]
+                
+                # Function to search in a directory
+                def search_directory(directory, max_depth=5):
+                    if not os.path.exists(directory) or max_depth <= 0:
+                        return None
+                        
                     try:
-                        subprocess.Popen([exe_name])
-                        return f"Opening {app_name}"
-                    except FileNotFoundError:
-                        pass
-                    
-                    # Search in common program paths
-                    for base_path in program_paths:
-                        if not base_path:
-                            continue
-                            
-                        # Search recursively up to 3 levels deep
-                        for root, dirs, files in os.walk(base_path):
-                            if root.count(os.sep) - base_path.count(os.sep) > 3:
+                        for root, dirs, files in os.walk(directory):
+                            # Skip certain system directories
+                            if any(skip in root.lower() for skip in ['$recycle.bin', 'system volume information', 'windows.old']):
                                 continue
                                 
-                            if exe_name.lower() in [f.lower() for f in files]:
-                                # Find the actual filename with correct case
-                                actual_exe = next(f for f in files if f.lower() == exe_name.lower())
-                                exe_path = os.path.join(root, actual_exe)
-                                try:
-                                    subprocess.Popen([exe_path])
-                                    return f"Opening {app_name}"
-                                except Exception as e:
-                                    print(f"Failed to open {exe_path}: {e}")
-                                    continue
+                            # Check current depth
+                            depth = root[len(directory):].count(os.sep)
+                            if depth > max_depth:
+                                continue
+                            
+                            # Search for exact matches first
+                            for name in possible_names:
+                                for ext in extensions:
+                                    filename = name + ext
+                                    if filename.lower() in [f.lower() for f in files]:
+                                        actual_file = next(f for f in files if f.lower() == filename.lower())
+                                        return os.path.join(root, actual_file)
+                            
+                            # Then search for partial matches
+                            for file in files:
+                                if any(name in file.lower() for name in possible_names):
+                                    return os.path.join(root, file)
+                    except Exception as e:
+                        print(f"Error searching {directory}: {e}")
+                    return None
                 
-                return f"Could not find {app_name}. Please check if it's installed and try again."
+                # Search in all paths
+                all_paths = (
+                    start_menu_paths +  # Start Menu first (fastest)
+                    system_paths +      # Then system paths
+                    program_paths +     # Then program paths
+                    user_paths +        # Then user paths
+                    drives             # Finally, all drives (slowest)
+                )
+                
+                # Try each path
+                for path in all_paths:
+                    if not path or not os.path.exists(path):
+                        continue
+                        
+                    result = search_directory(path, max_depth=3 if path in drives else 5)
+                    if result:
+                        try:
+                            if result.lower().endswith('.lnk'):
+                                # Resolve shortcut
+                                import pythoncom
+                                from win32com.shell import shell
+                                pythoncom.CoInitialize()
+                                shortcut = pythoncom.CoCreateInstance(
+                                    shell.CLSID_ShellLink,
+                                    None,
+                                    pythoncom.CLSCTX_INPROC_SERVER,
+                                    shell.IID_IShellLink
+                                )
+                                shortcut.QueryInterface(pythoncom.IID_IPersistFile).Load(result)
+                                result = shortcut.GetPath()[0]
+                            
+                            subprocess.Popen([result])
+                            return f"I found and opened {app_name} from {result}"
+                        except Exception as e:
+                            return f"I found {app_name} at {result}, but encountered an error while trying to open it: {str(e)}"
+                
+                return f"I apologize, but I couldn't find {app_name} anywhere on your PC. Please verify that it's installed and try again."
             else:
-                return "Application opening is only supported on Windows for now."
+                return "I apologize, but application opening is only supported on Windows systems for now."
         except Exception as e:
-            print(f"Error opening application: {e}")  # Log the error but don't return it
-            return f"Could not open {app_name}"
+            print(f"Error opening application: {e}")
+            return f"I encountered an error while trying to open {app_name}: {str(e)}"
 
     def close_application(self, app_name):
         """Close specified application with enhanced process handling"""
@@ -978,12 +1092,19 @@ class Jarvis:
                 response = await self.process_command(command)
                 print(f"Response: {response}")
                 
-                # Only speak if not interrupted
+                # Always speak the response, even if it's an error message
+                # Only skip speaking if we were interrupted
                 if not self.interrupt_event.is_set():
+                    # For empty or None responses, provide a default message
+                    if not response or response.strip() == "":
+                        response = "I apologize, but I couldn't process that command properly. Could you please try again?"
                     await self.speak(response)
                     
             except Exception as e:
-                print(f"Error in main loop: {e}")
+                error_message = f"I encountered an error: {str(e)}"
+                print(error_message)
+                if not self.interrupt_event.is_set():
+                    await self.speak(error_message)
                 continue
         
         # Clean up
