@@ -17,9 +17,7 @@ import numpy as np
 import time
 import threading
 import queue
-from signalrcore.hub_connection_builder import HubConnectionBuilder
 from elevenlabs import generate, play
-import jwt
 
 # Load environment variables
 load_dotenv()
@@ -63,10 +61,6 @@ class Jarvis:
         self.background_listening = True
         self.last_phrase_time = time.time()
         self.command_timeout = 2.0  # Time to wait for command completion
-        
-        # Initialize SignalR connection
-        self.hub_connection = None
-        self.setup_signalr_connection()
 
         # Load ElevenLabs API key and voice ID
         self.elevenlabs_api_key = os.getenv('ELEVENLABS_API_KEY')
@@ -79,117 +73,6 @@ class Jarvis:
             "style": 0.0,  # Neutral style
             "use_speaker_boost": True  # Enhanced clarity
         }
-
-    def setup_signalr_connection(self):
-        """Set up the SignalR connection with Azure SignalR Service"""
-        try:
-            # Parse the connection string
-            connection_string = os.getenv('AZURE_SIGNALR_CONNECTION_STRING', '')
-            if not connection_string:
-                print("Azure SignalR connection string not found")
-                return
-
-            # Parse connection string components
-            components = dict(item.split('=', 1) for item in connection_string.split(';') if '=' in item)
-            endpoint = components.get('Endpoint', '').rstrip('/')
-            access_key = components.get('AccessKey', '')
-
-            print(f"Endpoint: {endpoint}")  # Debug print
-
-            # Remove the protocol from the endpoint if present
-            if endpoint.startswith('https://'):
-                endpoint = endpoint[8:]
-            elif endpoint.startswith('http://'):
-                endpoint = endpoint[7:]
-
-            # Generate JWT token for authentication
-            now = datetime.datetime.utcnow()
-            token = jwt.encode(
-                {
-                    'aud': endpoint,
-                    'exp': int((now + datetime.timedelta(hours=1)).timestamp()),
-                    'nbf': int(now.timestamp()),
-                    'iat': int(now.timestamp())
-                },
-                access_key,
-                algorithm='HS256'
-            )
-
-            # Construct the hub URL with the negotiation endpoint
-            hub_url = f"https://{endpoint}/client/negotiate?hub=jarvis"
-            print(f"Negotiating with: {hub_url}")  # Debug print
-            
-            # Get the connection info from the negotiate endpoint
-            headers = {
-                'Authorization': f'Bearer {token}'
-            }
-            response = requests.post(hub_url, headers=headers)
-            print(f"Negotiate Response Status: {response.status_code}")  # Debug print
-            print(f"Negotiate Response: {response.text}")  # Debug print
-            
-            if response.status_code != 200:
-                print(f"Negotiation failed with status {response.status_code}")
-                return
-                
-            negotiate_response = response.json()
-            
-            # Use the URL from the negotiate response
-            connection_url = negotiate_response.get('url', '')
-            if not connection_url:
-                print("Failed to get connection URL from negotiate endpoint")
-                return
-
-            print(f"Connection URL: {connection_url}")  # Debug print
-
-            # Set up the hub connection with the negotiated URL
-            self.hub_connection = HubConnectionBuilder()\
-                .with_url(connection_url, options={
-                    "access_token_factory": lambda: token,
-                    "skip_negotiation": False,
-                    "transport": "websockets"
-                })\
-                .with_automatic_reconnect({
-                    "type": "interval",
-                    "keep_alive_interval": 10,
-                    "reconnect_interval": 5,
-                    "max_attempts": 5
-                })\
-                .build()
-
-            # Set up message handler
-            self.hub_connection.on("ReceiveMessage", self.handle_signalr_message)
-            
-            # Start the connection
-            self.hub_connection.start()
-            print("SignalR connection established with Azure SignalR Service")
-            
-        except Exception as e:
-            print(f"Error setting up SignalR connection: {str(e)}")
-            print(f"Error type: {type(e)}")  # Debug print
-            self.hub_connection = None
-
-    def handle_signalr_message(self, message):
-        """Handle incoming SignalR messages"""
-        try:
-            print(f"Received SignalR message: {message}")
-            # Queue the message for speech output
-            if not self.is_speaking:
-                asyncio.create_task(self.speak(f"Received message: {message}"))
-        except Exception as e:
-            print(f"Error handling SignalR message: {e}")
-
-    def send_signalr_message(self, message):
-        """Send a message through SignalR hub"""
-        try:
-            if self.hub_connection and self.hub_connection.transport.connected:
-                # Send message with user identifier
-                self.hub_connection.send("SendMessage", ["JARVIS", message])
-                return f"Message sent via SignalR: {message}"
-            else:
-                return "SignalR connection not available. Please check your connection."
-        except Exception as e:
-            print(f"Error sending SignalR message: {e}")
-            return f"Failed to send message: {str(e)}"
 
     def adjust_for_ambient_noise(self, source, duration=1):
         """Adjust recognizer energy threshold based on ambient noise"""
@@ -350,16 +233,6 @@ class Jarvis:
         try:
             # First, check for specific task commands
             cmd_lower = command.lower()
-            
-            # Handle SignalR commands with simpler "broadcast" keyword
-            if cmd_lower.startswith("broadcast "):
-                message = command[len("broadcast "):].strip()
-                return self.send_signalr_message(message)
-            elif "send message" in cmd_lower and "via signalr" in cmd_lower:
-                message = command.split("send message")[-1].replace("via signalr", "").strip()
-                return self.send_signalr_message(message)
-            elif "hello signalr" in cmd_lower:
-                return self.send_signalr_message("Hello from JARVIS!")
             
             # Handle compound commands with "and"
             if " and " in cmd_lower:

@@ -8,6 +8,4 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 pocketsphinx>=5.0.0
 google-cloud-speech>=2.21.0
-signalrcore>=0.9.2
-elevenlabs>=0.2.24
-PyJWT>=2.8.0 
+elevenlabs>=0.2.24 
