@@ -1,86 +1,80 @@
 # JARVIS - Voice-Activated AI Assistant
 
-JARVIS is a Python-based command-line AI assistant that uses voice input and output to interact with users. It combines OpenAI's GPT-4 for natural language understanding and text-to-speech capabilities for a seamless voice interaction experience.
+JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's JARVIS. It uses state-of-the-art AI technologies to provide a natural and powerful interface for controlling your computer and accessing information.
 
 ## Features
 
-- Voice input recognition using Google Speech Recognition
-- Text-to-speech output using OpenAI's TTS (with fallback to pyttsx3)
-- Natural language processing using GPT-4
-- British accent and sophisticated speaking style
-- Easy-to-use command-line interface
+- 🎙️ **Voice Recognition**: Understands natural speech commands using Google's Speech Recognition
+- 🗣️ **Natural Speech**: Responds with human-like speech using ElevenLabs' text-to-speech
+- 🤖 **AI-Powered Responses**: Uses GPT-4 for intelligent conversation and task handling
+- 📝 **Note Taking**: Can create, append to, and manage notes in Notepad
+- 🌐 **Web Search**: Performs web searches directly through voice commands
+- 💻 **Application Control**: Opens and closes applications with voice commands
+- ⚡ **System Commands**: Executes system commands and provides system information
+- 🌤️ **Weather Information**: Provides weather updates for any city
+- ⏰ **Time Information**: Tells the current time
+- 🎯 **Interruption Handling**: Can be interrupted mid-speech with "stop" command
 
-## Prerequisites
+## Requirements
 
-- Python 3.7 or higher
-- OpenAI API key
-- Microphone for voice input
-- Speakers for voice output
+- Python 3.8+
+- Windows OS (some features are Windows-specific)
+- Required API keys (OpenAI, ElevenLabs, OpenWeather)
 
 ## Installation
 
-1. Clone this repository:
-```bash
-git clone <repository-url>
-cd jarvis
-```
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/jarvis.git
+   cd jarvis
+   ```
 
-2. Install the required dependencies:
-```bash
-pip install -r requirements.txt
-```
+2. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Create a `.env` file in the project root and add your OpenAI API key:
-```
-OPENAI_API_KEY=your_api_key_here
-```
+3. Set up environment variables:
+   - Copy `.env.template` to `.env`
+   - Fill in your API keys in the `.env` file
 
 ## Usage
 
-1. Run JARVIS:
+Run JARVIS:
 ```bash
 python jarvis.py
 ```
 
-2. Wait for the "Listening..." prompt
+### Example Commands
 
-3. Speak your command or question
+- "Open Chrome"
+- "Close Notepad"
+- "Write a shopping list in Notepad"
+- "Search for latest tech news"
+- "What's the weather in London?"
+- "What time is it?"
+- "Stop" (interrupts current speech)
 
-4. Listen to JARVIS's response
+## Configuration
 
-5. To exit, say "goodbye", "exit", or "quit"
+JARVIS can be configured through environment variables in the `.env` file:
 
-## Common Commands
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `ELEVENLABS_API_KEY`: Your ElevenLabs API key
+- `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID
+- `OPENWEATHER_API_KEY`: Your OpenWeather API key (optional)
 
-- Ask questions
-- Request information
-- Give instructions
-- Have conversations
+## Contributing
 
-## Troubleshooting
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-If you encounter issues with PyAudio installation:
+## License
 
-### Windows
-```bash
-pip install pipwin
-pipwin install pyaudio
-```
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-### Linux
-```bash
-sudo apt-get install python3-pyaudio
-```
+## Acknowledgments
 
-### macOS
-```bash
-brew install portaudio
-pip install pyaudio
-```
-
-## Note
-
-This program requires an active internet connection for:
-- Speech recognition
-- OpenAI API calls
-- Text-to-speech generation
+- OpenAI for GPT-4 and TTS capabilities
+- ElevenLabs for advanced text-to-speech
+- Google for Speech Recognition
+- All other open-source libraries used in this project

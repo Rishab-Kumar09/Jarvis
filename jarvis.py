@@ -61,7 +61,11 @@ class Jarvis:
         self.background_listening = True
         self.last_phrase_time = time.time()
         self.command_timeout = 2.0  # Time to wait for command completion
-
+        
+        # Add note tracking
+        self.note_counter = 1
+        self.notes_dir = os.path.join(os.path.expanduser('~'), 'Documents')
+        
         # Load ElevenLabs API key and voice ID
         self.elevenlabs_api_key = os.getenv('ELEVENLABS_API_KEY')
         self.elevenlabs_voice_id = os.getenv('ELEVENLABS_VOICE_ID')
@@ -73,6 +77,11 @@ class Jarvis:
             "style": 0.0,  # Neutral style
             "use_speaker_boost": True  # Enhanced clarity
         }
+
+        # Add memory for active notes and last response
+        self.active_notepad = None  # Store the active notepad process
+        self.active_note_path = None  # Store the path of the active note
+        self.last_response = None  # Store the last response from GPT or other commands
 
     def adjust_for_ambient_noise(self, source, duration=1):
         """Adjust recognizer energy threshold based on ambient noise"""
@@ -91,30 +100,64 @@ class Jarvis:
         except Exception as e:
             return f"Error executing command: {e}"
 
-    def write_to_notepad(self, text, filename=None):
-        """Write text to notepad with optional filename"""
+    def generate_note_filename(self, text, filename=None):
+        """Generate a human-readable filename for the note"""
+        if filename:
+            # Use the specified filename
+            if not filename.lower().endswith('.txt'):
+                filename += '.txt'
+            return filename
+            
+        # Try to generate a filename from the first few words of the text
+        words = text.split()
+        if len(words) > 0:
+            # Take first 4 words and clean them
+            title_words = words[:4]
+            title = '_'.join(word.lower() for word in title_words if word.isalnum())
+            if title:
+                return f"jarvis_{title}.txt"
+        
+        # Fallback to numbered note if text is not suitable for filename
+        existing_notes = [f for f in os.listdir(self.notes_dir) 
+                         if f.startswith('jarvis_note') and f.endswith('.txt')]
+        self.note_counter = len(existing_notes) + 1
+        return f"jarvis_note{self.note_counter}.txt"
+
+    def write_to_notepad(self, text, filename=None, append=False):
+        """Write text to notepad with improved filename generation and append support"""
         try:
             if self.system_info == "Windows":
-                # Use specified filename or create a default one
-                if filename:
-                    # Ensure the filename has .txt extension
-                    if not filename.lower().endswith('.txt'):
-                        filename += '.txt'
-                    file_path = os.path.join(os.path.expanduser('~'), 'Documents', filename)
+                if append and self.active_note_path:
+                    file_path = self.active_note_path
                 else:
-                    # Create a timestamp-based filename
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    file_path = os.path.join(os.path.expanduser('~'), 'Documents', f'jarvis_note_{timestamp}.txt')
+                    # Generate an appropriate filename
+                    filename = self.generate_note_filename(text, filename)
+                    file_path = os.path.join(self.notes_dir, filename)
+                    
+                    # Create Documents directory if it doesn't exist
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 
-                # Create Documents directory if it doesn't exist
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                # Write or append the file
+                mode = 'a' if append else 'w'
+                with open(file_path, mode, encoding='utf-8') as f:
+                    if append:
+                        f.write('\n\n' + text)  # Add double newline for separation
+                    else:
+                        f.write(text)
                 
-                # Write the file
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(text)
+                # If there's an active Notepad process, close it before opening the new one
+                if self.active_notepad:
+                    try:
+                        self.active_notepad.terminate()
+                    except:
+                        pass
                 
                 # Open the file in Notepad
-                subprocess.Popen(['notepad.exe', file_path])
+                self.active_notepad = subprocess.Popen(['notepad.exe', file_path])
+                self.active_note_path = file_path
+                
+                if append:
+                    return f"Text has been appended to {file_path}"
                 return f"Text has been saved to {file_path}"
             else:
                 return "Notepad writing is only supported on Windows for now."
@@ -178,6 +221,7 @@ class Jarvis:
         """Open common applications with enhanced handling"""
         try:
             if self.system_info == "Windows":
+                # Dictionary mapping common app names to their process info
                 app_commands = {
                     "notepad": "notepad.exe",
                     "calculator": "calc.exe",
@@ -194,6 +238,14 @@ class Jarvis:
                     "word": "winword.exe",
                     "excel": "excel.exe",
                     "powerpoint": "powerpnt.exe",
+                    "edge": "msedge.exe",
+                    "vlc": "vlc.exe",
+                    "spotify": "spotify.exe",
+                    "discord": "discord.exe",
+                    "skype": "skype.exe",
+                    "teams": "teams.exe",
+                    "vscode": "code.exe",
+                    "paint": "mspaint.exe",
                     "cmd": {
                         "command": "cmd.exe",
                         "args": ["/k", "cd /d %userprofile%"]
@@ -209,6 +261,8 @@ class Jarvis:
                 }
                 
                 app_key = app_name.lower()
+                
+                # First try known applications
                 if app_key in app_commands:
                     app_info = app_commands[app_key]
                     
@@ -220,21 +274,151 @@ class Jarvis:
                         subprocess.Popen([app_info["command"]] + app_info["args"])
                     
                     return f"Opening {app_name}"
-                else:
-                    return f"Application {app_name} not found in known applications"
+                
+                # For unknown applications, try common paths and executable names
+                possible_exes = [
+                    f"{app_key}.exe",
+                    app_key,
+                    f"{app_key}launcher.exe",
+                    f"{app_key}-launcher.exe"
+                ]
+                
+                # Common installation paths
+                program_paths = [
+                    os.environ.get('PROGRAMFILES', 'C:\\Program Files'),
+                    os.environ.get('PROGRAMFILES(X86)', 'C:\\Program Files (x86)'),
+                    os.environ.get('LOCALAPPDATA', ''),
+                    os.environ.get('APPDATA', ''),
+                    os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs'),
+                    os.path.join(os.environ.get('APPDATA', ''), 'Programs'),
+                ]
+                
+                # Try to find and launch the application
+                for exe_name in possible_exes:
+                    # First try if the exe is in PATH
+                    try:
+                        subprocess.Popen([exe_name])
+                        return f"Opening {app_name}"
+                    except FileNotFoundError:
+                        pass
+                    
+                    # Search in common program paths
+                    for base_path in program_paths:
+                        if not base_path:
+                            continue
+                            
+                        # Search recursively up to 3 levels deep
+                        for root, dirs, files in os.walk(base_path):
+                            if root.count(os.sep) - base_path.count(os.sep) > 3:
+                                continue
+                                
+                            if exe_name.lower() in [f.lower() for f in files]:
+                                # Find the actual filename with correct case
+                                actual_exe = next(f for f in files if f.lower() == exe_name.lower())
+                                exe_path = os.path.join(root, actual_exe)
+                                try:
+                                    subprocess.Popen([exe_path])
+                                    return f"Opening {app_name}"
+                                except Exception as e:
+                                    print(f"Failed to open {exe_path}: {e}")
+                                    continue
+                
+                return f"Could not find {app_name}. Please check if it's installed and try again."
             else:
                 return "Application opening is only supported on Windows for now."
         except Exception as e:
             print(f"Error opening application: {e}")  # Log the error but don't return it
             return f"Could not open {app_name}"
 
+    def close_application(self, app_name):
+        """Close specified application with enhanced process handling"""
+        try:
+            if self.system_info == "Windows":
+                # Dictionary mapping common app names to their process names
+                app_processes = {
+                    "notepad": ["notepad.exe"],
+                    "chrome": ["chrome.exe"],
+                    "firefox": ["firefox.exe"],
+                    "word": ["winword.exe"],
+                    "excel": ["excel.exe"],
+                    "powerpoint": ["powerpnt.exe"],
+                    "calculator": ["calc.exe"],
+                    "edge": ["msedge.exe"],
+                    "vlc": ["vlc.exe"],
+                    "spotify": ["spotify.exe"],
+                    "discord": ["discord.exe"],
+                    "skype": ["skype.exe"],
+                    "teams": ["teams.exe"],
+                    "vscode": ["code.exe"],
+                    "paint": ["mspaint.exe"],
+                    "explorer": ["explorer.exe"],
+                    "cmd": ["cmd.exe"],
+                    "command prompt": ["cmd.exe"],
+                    "terminal": ["cmd.exe", "windowsterminal.exe"],
+                }
+
+                app_key = app_name.lower()
+                process_names = app_processes.get(app_key)
+
+                if not process_names:
+                    # Try to use the app name directly as a process name
+                    if app_key.endswith('.exe'):
+                        process_names = [app_key]
+                    else:
+                        process_names = [f"{app_key}.exe"]
+
+                closed_count = 0
+                for process_name in process_names:
+                    try:
+                        # First try to gracefully close processes using psutil
+                        for proc in psutil.process_iter(['pid', 'name']):
+                            try:
+                                if proc.info['name'].lower() == process_name.lower():
+                                    # Special handling for Notepad if it's our tracked instance
+                                    if process_name.lower() == "notepad.exe" and self.active_notepad and proc.pid == self.active_notepad.pid:
+                                        self.active_notepad.terminate()
+                                        self.active_notepad = None
+                                        self.active_note_path = None
+                                    else:
+                                        proc.terminate()
+                                        proc.wait(timeout=3)  # Wait for the process to terminate
+                                    closed_count += 1
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                                continue
+
+                        # If no processes were closed gracefully, try force closing
+                        if closed_count == 0:
+                            result = os.system(f'taskkill /F /IM "{process_name}"')
+                            if result == 0:  # Command executed successfully
+                                closed_count += 1
+
+                    except Exception as e:
+                        print(f"Error closing {process_name}: {e}")
+                        continue
+
+                if closed_count > 0:
+                    return f"Closed {closed_count} instance(s) of {app_name}"
+                else:
+                    return f"No running instances of {app_name} were found"
+            else:
+                return "Application closing is only supported on Windows for now."
+        except Exception as e:
+            return f"Error closing {app_name}: {e}"
+
     async def process_command(self, command):
         """Process voice commands and generate responses with enhanced command recognition"""
         try:
-            # First, check for specific task commands
+            # Store the command in lowercase for easier matching
             cmd_lower = command.lower()
             
-            # Handle compound commands with "and"
+            # Check for stop command first
+            if cmd_lower.strip() == "stop":
+                if self.is_speaking:
+                    self.interrupt_event.set()
+                    return "Stopping current speech..."
+                return "I wasn't speaking, but I'm ready for your next command."
+            
+            # First, check for specific task commands
             if " and " in cmd_lower:
                 # Special handling for Google search compounds
                 if "open google" in cmd_lower and ("search for" in cmd_lower or "look up" in cmd_lower):
@@ -257,30 +441,125 @@ class Jarvis:
                     responses.append(response)
                 return " And ".join(responses)
 
+            # For recipe requests that need to be written to Notepad
+            if ("recipe" in cmd_lower or "how to make" in cmd_lower) and any(phrase in cmd_lower for phrase in ["notepad", "note"]):
+                # Extract the recipe name
+                recipe_name = None
+                if "recipe" in cmd_lower:
+                    recipe_name = cmd_lower.split("recipe")[-1].split("in notepad")[0].split("to notepad")[0].split("on notepad")[0].strip()
+                elif "how to make" in cmd_lower:
+                    recipe_name = cmd_lower.split("how to make")[-1].split("in notepad")[0].split("to notepad")[0].split("on notepad")[0].strip()
+                
+                if recipe_name:
+                    # Generate recipe using GPT
+                    response = client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[
+                            {"role": "system", "content": "You are JARVIS, a culinary expert. Provide detailed yet concise recipes with ingredients and step-by-step instructions."},
+                            {"role": "user", "content": f"Provide a recipe for {recipe_name}"}
+                        ]
+                    )
+                    
+                    # Store the response and write it to notepad
+                    self.last_response = response.choices[0].message.content
+                    return self.write_to_notepad(self.last_response)
+                    
+            # For general queries that need to be written to Notepad
+            elif any(phrase in cmd_lower for phrase in ["write in notepad", "write to notepad", "write on notepad", "write the"]) and "notepad" in cmd_lower:
+                # Extract the content to write
+                content = command
+                for phrase in ["write in notepad", "write to notepad", "write on notepad", "write the"]:
+                    if content.lower().startswith(phrase):
+                        content = content[len(phrase):].strip()
+                
+                content = content.split("in notepad")[0].split("to notepad")[0].split("on notepad")[0].strip()
+                
+                if not content:
+                    return "Please specify what you'd like me to write in Notepad."
+                
+                # Generate content using GPT
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are JARVIS, a sophisticated AI assistant. Provide detailed and accurate information."},
+                        {"role": "user", "content": content}
+                    ]
+                )
+                
+                # Store the response and write it to notepad
+                self.last_response = response.choices[0].message.content
+                return self.write_to_notepad(self.last_response)
+            
+            # Handle requests to write last response to notepad
+            elif ("write" in cmd_lower or "save" in cmd_lower) and any(word in cmd_lower for word in ["it", "that", "this", "response", "recipe"]) and any(phrase in cmd_lower for phrase in ["notepad", "note"]):
+                if self.last_response:
+                    return self.write_to_notepad(self.last_response)
+                else:
+                    return "I don't have any previous response to write to Notepad."
+                    
             # Enhanced write to Notepad command
-            if "write" in cmd_lower and ("notepad" in cmd_lower or "note" in cmd_lower):
+            elif ("write" in cmd_lower or "append" in cmd_lower) and ("notepad" in cmd_lower or "note" in cmd_lower):
+                # Check if we should append
+                append = "append" in cmd_lower or "add" in cmd_lower
+                
                 # Check for filename specification
                 filename = None
                 if "as" in cmd_lower:
-                    # Extract filename after "as"
                     parts = command.split(" as ")
                     if len(parts) > 1:
                         filename = parts[1].strip()
-                        command = parts[0]  # Remove filename part from command
+                        command = parts[0]
                 
                 # Extract the text to write
-                text_to_write = command.split("write")[-1].replace("in notepad", "").replace("to notepad", "").strip()
+                text_to_write = command
+                
+                # Remove the write/append command from the beginning
+                if text_to_write.lower().startswith("write"):
+                    text_to_write = text_to_write[5:].strip()
+                elif text_to_write.lower().startswith("append"):
+                    text_to_write = text_to_write[6:].strip()
+                elif text_to_write.lower().startswith("in the notepad append"):
+                    text_to_write = text_to_write[19:].strip()
+                elif text_to_write.lower().startswith("in notepad append"):
+                    text_to_write = text_to_write[16:].strip()
+                
+                # Remove notepad/note phrases from the end
+                phrases_to_remove = [
+                    " in notepad",
+                    " to notepad",
+                    " on notepad",
+                    " in a note",
+                    " to a note",
+                    " on a note",
+                    " in the notepad",
+                    " to the notepad",
+                    " on the notepad",
+                    " append to notepad",
+                    " add to notepad"
+                ]
+                
+                for phrase in phrases_to_remove:
+                    if text_to_write.lower().endswith(phrase):
+                        text_to_write = text_to_write[:-len(phrase)].strip()
+                
                 if text_to_write:
-                    return self.write_to_notepad(text_to_write, filename)
+                    return self.write_to_notepad(text_to_write.strip(), filename, append)
                 else:
                     return "Please specify what you'd like me to write in Notepad."
             
-            # Save current notepad command
-            elif "save" in cmd_lower and ("notepad" in cmd_lower or "note" in cmd_lower):
+            # Save last response to notepad
+            elif ("save" in cmd_lower or "write" in cmd_lower) and "last" in cmd_lower and self.last_response:
+                filename = None
                 if "as" in cmd_lower:
                     filename = command.split("as")[-1].strip()
-                    return f"To save the current note, please use the Ctrl+S shortcut in Notepad and save it as {filename}"
-                return "To save the current note, please use the Ctrl+S shortcut in Notepad"
+                return self.write_to_notepad(self.last_response, filename)
+            
+            # Close application command
+            elif "close" in cmd_lower:
+                app_name = cmd_lower.replace("close", "").strip()
+                if app_name:
+                    return self.close_application(app_name)
+                return "Please specify which application to close."
             
             # Enhanced open and search commands
             elif "open" in cmd_lower:
@@ -348,7 +627,10 @@ class Jarvis:
                     {"role": "user", "content": command}
                 ]
             )
-            return response.choices[0].message.content
+            
+            # Store the response for potential later use
+            self.last_response = response.choices[0].message.content
+            return self.last_response
         except Exception as e:
             return f"I encountered an error: {e}"
 
@@ -603,6 +885,14 @@ class Jarvis:
                         # Process audio in background
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
+                        
+                        # Special handling for "stop" command
+                        if text.lower().strip() == "stop":
+                            print("Stop command detected!")
+                            if self.is_speaking:
+                                self.interrupt_event.set()
+                                self.command_queue.put(text)
+                            continue
                         
                         # If speaking, treat as interruption
                         if self.is_speaking:
