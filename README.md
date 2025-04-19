@@ -14,13 +14,119 @@ JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's 
 - 🌤️ **Weather Information**: Provides weather updates for any city
 - ⏰ **Time Information**: Tells the current time
 - 🎯 **Interruption Handling**: Can be interrupted mid-speech with "stop" command
-- 📱 **Remote Control**: Control JARVIS from your phone or any device through a web interface
 
-## Requirements
+## Technical Architecture
 
-- Python 3.8+
-- Windows OS (some features are Windows-specific)
-- Required API keys (OpenAI, ElevenLabs, OpenWeather)
+### Core Technologies
+- **Python**: Primary programming language
+- **OpenAI GPT-4**: Natural language understanding and response generation
+- **ElevenLabs**: High-quality text-to-speech with customizable voices
+- **Google Speech Recognition**: Primary speech-to-text conversion
+
+### Voice Processing Components
+```python
+# Speech Recognition Stack
+- SpeechRecognition library with PyAudio
+- Multiple recognition engines:
+  - Google Speech Recognition (primary)
+  - Google Cloud Speech (backup)
+  - PocketSphinx (offline fallback)
+```
+
+### Audio Processing
+```python
+# Audio Output Stack
+- sounddevice: Real-time audio playback
+- soundfile: Audio file handling
+- numpy: Audio data manipulation
+- ElevenLabs API: Primary TTS engine
+- OpenAI TTS: Fallback TTS engine
+```
+
+### System Integration
+```python
+# System Control Components
+- subprocess: Application launching
+- psutil: Process management
+- os: File system operations
+- platform: OS detection
+```
+
+### Program Control Architecture
+```python
+# Application Management Features
+- Dynamic path resolution
+- Recursive file search
+- Process lifecycle management
+- Multi-format support:
+  - Executables (.exe)
+  - Shortcuts (.lnk)
+  - Batch files (.bat, .cmd)
+  - System files (.msc)
+```
+
+### Advanced Features
+1. **Real-time Interruption Detection**
+   - Monitors audio input during speech
+   - Immediate response to "stop" command
+
+2. **Background Listening**
+   - Continuous voice command monitoring
+   - Efficient audio processing
+   - Low resource utilization
+
+3. **Command Queue Management**
+   - Sequential command processing
+   - Priority handling
+   - State management
+
+4. **Error Handling**
+   - Graceful degradation
+   - Multiple fallback systems
+   - Comprehensive error reporting
+
+## Dependencies
+
+```python
+openai>=1.0.0          # AI and TTS capabilities
+SpeechRecognition>=3.10.0  # Voice recognition
+python-dotenv>=1.0.0   # Environment configuration
+psutil>=5.9.0          # System process management
+sounddevice>=0.4.6     # Audio output handling
+soundfile>=0.12.1      # Audio file processing
+numpy>=1.24.0          # Numerical operations
+elevenlabs>=0.2.24     # Primary TTS engine
+PyAudio>=0.2.13        # Audio input handling
+pocketsphinx>=5.0.0    # Offline speech recognition
+```
+
+## Voice Command Processing Flow
+
+### 1. Voice Input Processing
+```python
+# Continuous Monitoring
+- Real-time audio capture
+- Background noise filtering
+- Speech detection algorithms
+```
+
+### 2. Command Recognition
+```python
+# Speech to Command Pipeline
+1. Audio capture and preprocessing
+2. Speech-to-text conversion
+3. Command pattern recognition
+4. Argument extraction
+```
+
+### 3. Program Control Mechanism
+```python
+# Application Management
+1. Command validation
+2. Path resolution
+3. Process spawning
+4. State monitoring
+```
 
 ## Installation
 
@@ -37,22 +143,18 @@ JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's 
 
 3. Set up environment variables:
    - Copy `.env.template` to `.env`
-   - Fill in your API keys in the `.env` file
+   - Fill in your API keys:
+     - OPENAI_API_KEY
+     - ELEVENLABS_API_KEY
+     - ELEVENLABS_VOICE_ID
+     - OPENWEATHER_API_KEY (optional)
 
 ## Usage
 
-### Voice Control
-Run JARVIS with voice control:
+Run JARVIS:
 ```bash
 python jarvis.py
 ```
-
-### Remote Control
-Run JARVIS with web interface for remote control:
-```bash
-python web_interface.py
-```
-Then open `http://your_computer_ip:5000` in your phone's browser to access the remote control interface.
 
 ### Example Commands
 
@@ -64,8 +166,6 @@ Then open `http://your_computer_ip:5000` in your phone's browser to access the r
 - "What time is it?"
 - "Stop" (interrupts current speech)
 
-All these commands work both through voice and the remote web interface.
-
 ## Configuration
 
 JARVIS can be configured through environment variables in the `.env` file:
@@ -74,21 +174,6 @@ JARVIS can be configured through environment variables in the `.env` file:
 - `ELEVENLABS_API_KEY`: Your ElevenLabs API key
 - `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID
 - `OPENWEATHER_API_KEY`: Your OpenWeather API key (optional)
-
-## Remote Control Interface
-
-The web interface provides:
-- Text input for sending any command to JARVIS
-- Quick action buttons for common commands
-- Real-time response display
-- Mobile-friendly design
-- Works on any device with a web browser
-
-To use the remote control:
-1. Run `python web_interface.py` on your computer
-2. Find your computer's IP address (use `ipconfig` on Windows)
-3. On your phone, open a browser and go to `http://your_computer_ip:5000`
-4. Enter commands or use quick action buttons to control JARVIS
 
 ## Contributing
 

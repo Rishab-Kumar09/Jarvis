@@ -1,0 +1,423 @@
+[1mdiff --git a/README.md b/README.md[m
+[1mindex c22b18f..f60fde8 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -14,13 +14,119 @@[m [mJARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's[m
+ - 🌤️ **Weather Information**: Provides weather updates for any city[m
+ - ⏰ **Time Information**: Tells the current time[m
+ - 🎯 **Interruption Handling**: Can be interrupted mid-speech with "stop" command[m
+[31m-- 📱 **Remote Control**: Control JARVIS from your phone or any device through a web interface[m
+ [m
+[31m-## Requirements[m
+[32m+[m[32m## Technical Architecture[m
+[32m+[m
+[32m+[m[32m### Core Technologies[m
+[32m+[m[32m- **Python**: Primary programming language[m
+[32m+[m[32m- **OpenAI GPT-4**: Natural language understanding and response generation[m
+[32m+[m[32m- **ElevenLabs**: High-quality text-to-speech with customizable voices[m
+[32m+[m[32m- **Google Speech Recognition**: Primary speech-to-text conversion[m
+[32m+[m
+[32m+[m[32m### Voice Processing Components[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Speech Recognition Stack[m
+[32m+[m[32m- SpeechRecognition library with PyAudio[m
+[32m+[m[32m- Multiple recognition engines:[m
+[32m+[m[32m  - Google Speech Recognition (primary)[m
+[32m+[m[32m  - Google Cloud Speech (backup)[m
+[32m+[m[32m  - PocketSphinx (offline fallback)[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### Audio Processing[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Audio Output Stack[m
+[32m+[m[32m- sounddevice: Real-time audio playback[m
+[32m+[m[32m- soundfile: Audio file handling[m
+[32m+[m[32m- numpy: Audio data manipulation[m
+[32m+[m[32m- ElevenLabs API: Primary TTS engine[m
+[32m+[m[32m- OpenAI TTS: Fallback TTS engine[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### System Integration[m
+[32m+[m[32m```python[m
+[32m+[m[32m# System Control Components[m
+[32m+[m[32m- subprocess: Application launching[m
+[32m+[m[32m- psutil: Process management[m
+[32m+[m[32m- os: File system operations[m
+[32m+[m[32m- platform: OS detection[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### Program Control Architecture[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Application Management Features[m
+[32m+[m[32m- Dynamic path resolution[m
+[32m+[m[32m- Recursive file search[m
+[32m+[m[32m- Process lifecycle management[m
+[32m+[m[32m- Multi-format support:[m
+[32m+[m[32m  - Executables (.exe)[m
+[32m+[m[32m  - Shortcuts (.lnk)[m
+[32m+[m[32m  - Batch files (.bat, .cmd)[m
+[32m+[m[32m  - System files (.msc)[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### Advanced Features[m
+[32m+[m[32m1. **Real-time Interruption Detection**[m
+[32m+[m[32m   - Monitors audio input during speech[m
+[32m+[m[32m   - Immediate response to "stop" command[m
+[32m+[m
+[32m+[m[32m2. **Background Listening**[m
+[32m+[m[32m   - Continuous voice command monitoring[m
+[32m+[m[32m   - Efficient audio processing[m
+[32m+[m[32m   - Low resource utilization[m
+[32m+[m
+[32m+[m[32m3. **Command Queue Management**[m
+[32m+[m[32m   - Sequential command processing[m
+[32m+[m[32m   - Priority handling[m
+[32m+[m[32m   - State management[m
+[32m+[m
+[32m+[m[32m4. **Error Handling**[m
+[32m+[m[32m   - Graceful degradation[m
+[32m+[m[32m   - Multiple fallback systems[m
+[32m+[m[32m   - Comprehensive error reporting[m
+[32m+[m
+[32m+[m[32m## Dependencies[m
+[32m+[m
+[32m+[m[32m```python[m
+[32m+[m[32mopenai>=1.0.0          # AI and TTS capabilities[m
+[32m+[m[32mSpeechRecognition>=3.10.0  # Voice recognition[m
+[32m+[m[32mpython-dotenv>=1.0.0   # Environment configuration[m
+[32m+[m[32mpsutil>=5.9.0          # System process management[m
+[32m+[m[32msounddevice>=0.4.6     # Audio output handling[m
+[32m+[m[32msoundfile>=0.12.1      # Audio file processing[m
+[32m+[m[32mnumpy>=1.24.0          # Numerical operations[m
+[32m+[m[32melevenlabs>=0.2.24     # Primary TTS engine[m
+[32m+[m[32mPyAudio>=0.2.13        # Audio input handling[m
+[32m+[m[32mpocketsphinx>=5.0.0    # Offline speech recognition[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m## Voice Command Processing Flow[m
+[32m+[m
+[32m+[m[32m### 1. Voice Input Processing[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Continuous Monitoring[m
+[32m+[m[32m- Real-time audio capture[m
+[32m+[m[32m- Background noise filtering[m
+[32m+[m[32m- Speech detection algorithms[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### 2. Command Recognition[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Speech to Command Pipeline[m
+[32m+[m[32m1. Audio capture and preprocessing[m
+[32m+[m[32m2. Speech-to-text conversion[m
+[32m+[m[32m3. Command pattern recognition[m
+[32m+[m[32m4. Argument extraction[m
+[32m+[m[32m```[m
+ [m
+[31m-- Python 3.8+[m
+[31m-- Windows OS (some features are Windows-specific)[m
+[31m-- Required API keys (OpenAI, ElevenLabs, OpenWeather)[m
+[32m+[m[32m### 3. Program Control Mechanism[m
+[32m+[m[32m```python[m
+[32m+[m[32m# Application Management[m
+[32m+[m[32m1. Command validation[m
+[32m+[m[32m2. Path resolution[m
+[32m+[m[32m3. Process spawning[m
+[32m+[m[32m4. State monitoring[m
+[32m+[m[32m```[m
+ [m
+ ## Installation[m
+ [m
+[36m@@ -37,23 +143,19 @@[m [mJARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's[m
+ [m
+ 3. Set up environment variables:[m
+    - Copy `.env.template` to `.env`[m
+[31m-   - Fill in your API keys in the `.env` file[m
+[32m+[m[32m   - Fill in your API keys:[m
+[32m+[m[32m     - OPENAI_API_KEY[m
+[32m+[m[32m     - ELEVENLABS_API_KEY[m
+[32m+[m[32m     - ELEVENLABS_VOICE_ID[m
+[32m+[m[32m     - OPENWEATHER_API_KEY (optional)[m
+ [m
+ ## Usage[m
+ [m
+[31m-### Voice Control[m
+[31m-Run JARVIS with voice control:[m
+[32m+[m[32mRun JARVIS:[m
+ ```bash[m
+ python jarvis.py[m
+ ```[m
+ [m
+[31m-### Remote Control[m
+[31m-Run JARVIS with web interface for remote control:[m
+[31m-```bash[m
+[31m-python web_interface.py[m
+[31m-```[m
+[31m-Then open `http://your_computer_ip:5000` in your phone's browser to access the remote control interface.[m
+[31m-[m
+ ### Example Commands[m
+ [m
+ - "Open Chrome"[m
+[36m@@ -64,8 +166,6 @@[m [mThen open `http://your_computer_ip:5000` in your phone's browser to access the r[m
+ - "What time is it?"[m
+ - "Stop" (interrupts current speech)[m
+ [m
+[31m-All these commands work both through voice and the remote web interface.[m
+[31m-[m
+ ## Configuration[m
+ [m
+ JARVIS can be configured through environment variables in the `.env` file:[m
+[36m@@ -75,21 +175,6 @@[m [mJARVIS can be configured through environment variables in the `.env` file:[m
+ - `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID[m
+ - `OPENWEATHER_API_KEY`: Your OpenWeather API key (optional)[m
+ [m
+[31m-## Remote Control Interface[m
+[31m-[m
+[31m-The web interface provides:[m
+[31m-- Text input for sending any command to JARVIS[m
+[31m-- Quick action buttons for common commands[m
+[31m-- Real-time response display[m
+[31m-- Mobile-friendly design[m
+[31m-- Works on any device with a web browser[m
+[31m-[m
+[31m-To use the remote control:[m
+[31m-1. Run `python web_interface.py` on your computer[m
+[31m-2. Find your computer's IP address (use `ipconfig` on Windows)[m
+[31m-3. On your phone, open a browser and go to `http://your_computer_ip:5000`[m
+[31m-4. Enter commands or use quick action buttons to control JARVIS[m
+[31m-[m
+ ## Contributing[m
+ [m
+ Contributions are welcome! Please feel free to submit a Pull Request.[m
+[1mdiff --git a/jarvis.py b/jarvis.py[m
+[1mindex 7ffbc81..99f3ec1 100644[m
+[1m--- a/jarvis.py[m
+[1m+++ b/jarvis.py[m
+[36m@@ -1,7 +1,5 @@[m
+ import speech_recognition as sr[m
+ import json[m
+[31m-from openai import OpenAI[m
+[31m-import asyncio[m
+ import os[m
+ from dotenv import load_dotenv[m
+ import webbrowser[m
+[36m@@ -18,12 +16,20 @@[m [mimport time[m
+ import threading[m
+ import queue[m
+ from elevenlabs import generate, play[m
+[32m+[m[32mimport sys[m
+[32m+[m[32mimport openai[m
+[32m+[m[32mimport win32com.client[m
+[32m+[m[32mimport pyttsx3[m
+[32m+[m[32mfrom pathlib import Path[m
+[32m+[m[32mimport asyncio[m
+ [m
+ # Load environment variables[m
+ load_dotenv()[m
+ [m
+[31m-# Initialize OpenAI client[m
+[31m-client = OpenAI()[m
+[32m+[m[32m# Initialize OpenAI client with API key from environment variable[m
+[32m+[m[32mopenai_client = openai.OpenAI([m
+[32m+[m[32m    api_key=os.getenv("OPENAI_API_KEY")[m
+[32m+[m[32m)[m
+ [m
+ class Jarvis:[m
+     def __init__(self):[m
+[36m@@ -83,63 +89,122 @@[m [mclass Jarvis:[m
+         self.active_note_path = None  # Store the path of the active note[m
+         self.last_response = None  # Store the last response from GPT or other commands[m
+ [m
+[31m-        # Dictionary mapping common app names to their process names or paths[m
+[32m+[m[32m        # Initialize app commands with common paths[m
+         self.app_commands = {[m
+             "chrome": {[m
+[31m-                "command": "chrome",[m
+[32m+[m[32m                "command": "chrome.exe",[m
+                 "paths": [[m
+                     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",[m
+                     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"[m
+                 ][m
+             },[m
+             "firefox": {[m
+[31m-                "command": "firefox",[m
+[32m+[m[32m                "command": "firefox.exe",[m
+                 "paths": [[m
+                     "C:\\Program Files\\Mozilla Firefox\\firefox.exe",[m
+                     "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe"[m
+                 ][m
+             },[m
+             "edge": {[m
+[31m-                "command": "msedge",[m
+[32m+[m[32m                "command": "msedge.exe",[m
+                 "paths": [[m
+                     "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",[m
+                     "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"[m
+                 ][m
+             },[m
+[31m-            "store": {[m
+[31m-                "command": "explorer.exe",[m
+[31m-                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"][m
+[32m+[m[32m            "word": {[m
+[32m+[m[32m                "command": "winword.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office16\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office16\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office15\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office15\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office14\\WINWORD.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office14\\WINWORD.EXE"[m
+[32m+[m[32m                ][m
+             },[m
+[31m-            "windows store": {[m
+[31m-                "command": "explorer.exe",[m
+[31m-                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"][m
+[32m+[m[32m            "excel": {[m
+[32m+[m[32m                "command": "excel.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office16\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office16\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office15\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office15\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office14\\EXCEL.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office14\\EXCEL.EXE"[m
+[32m+[m[32m                ][m
+             },[m
+[31m-            "app store": {[m
+[31m-                "command": "explorer.exe",[m
+[31m-                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"][m
+[32m+[m[32m            "powerpoint": {[m
+[32m+[m[32m                "command": "powerpnt.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office16\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office16\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office15\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office15\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files\\Microsoft Office\\Office14\\POWERPNT.EXE",[m
+[32m+[m[32m                    "C:\\Program Files (x86)\\Microsoft Office\\Office14\\POWERPNT.EXE"[m
+[32m+[m[32m                ][m
+             },[m
+[31m-            "microsoft store": {[m
+[31m-                "command": "explorer.exe",[m
+[31m-                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"][m
+[32m+[m[32m            "notepad": {[m
+[32m+[m[32m                "command": "notepad.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Windows\\System32\\notepad.exe",[m
+[32m+[m[32m                    "C:\\Windows\\notepad.exe"[m
+[32m+[m[32m                ][m
+             },[m
+[31m-            "notepad": "notepad.exe",[m
+[31m-            "word": "winword.exe",[m
+[31m-            "excel": "excel.exe",[m
+[31m-            "powerpoint": "powerpnt.exe",[m
+[31m-            "calculator": "calc.exe",[m
+[31m-            "paint": "mspaint.exe",[m
+[31m-            "cmd": "cmd.exe",[m
+[31m-            "command prompt": {[m
+[31m-                "command": "cmd.exe",[m
+[31m-                "args": [][m
+[32m+[m[32m            "calculator": {[m
+[32m+[m[32m                "command": "calc.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Windows\\System32\\calc.exe"[m
+[32m+[m[32m                ][m
+             },[m
+[31m-            "command prompt as admin": {[m
+[32m+[m[32m            "paint": {[m
+[32m+[m[32m                "command": "mspaint.exe",[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Windows\\System32\\mspaint.exe"[m
+[32m+[m[32m                ][m
+[32m+[m[32m            },[m
+[32m+[m[32m            "cmd": {[m
+                 "command": "cmd.exe",[m
+[31m-                "args": ["/c", "start", "cmd.exe", "/k", "cd /d %userprofile%"],[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Windows\\System32\\cmd.exe"[m
+[32m+[m[32m                ],[m
+                 "admin": True[m
+[32m+[m[32m            },[m
+[32m+[m[32m            "store": {[m
+[32m+[m[32m                "command": "explorer.exe",[m
+[32m+[m[32m                "args": ["shell:AppsFolder\\Microsoft.WindowsStore_8wekyb3d8bbwe!App"],[m
+[32m+[m[32m                "paths": [[m
+[32m+[m[32m                    "C:\\Windows\\explorer.exe"[m
+[32m+[m[32m                ][m
+             }[m
+         }[m
+ [m
+[32m+[m[32m        # Add context tracking[m
+[32m+[m[32m        self.last_question = None[m
+[32m+[m[32m        self.last_content = None[m
+[32m+[m[32m        self.waiting_for_response = False[m
+[32m+[m
+[32m+[m[32m        # Initialize text-to-speech engine[m
+[32m+[m[32m        self.engine = pyttsx3.init()[m
+[32m+[m[41m        [m
+[32m+[m[32m        # Set properties for the voice[m
+[32m+[m[32m        self.engine.setProperty('rate', 150)    # Speed of speech[m
+[32m+[m[32m        self.engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)[m
+[32m+[m[41m        [m
+[32m+[m[32m        # Get available voices and set to a British male voice if available[m
+[32m+[m[32m        voices = self.engine.getProperty('voices')[m
+[32m+[m[32m        for voice in voices:[m
+[32m+[m[32m            if "british" in voice.name.lower() and "male" in voice.name.lower():[m
+[32m+[m[32m                self.engine.setProperty('voice', voice.id)[m
+[32m+[m[32m                break[m
+[32m+[m
+     def adjust_for_ambient_noise(self, source, duration=1):[m
+         """Adjust recognizer energy threshold based on ambient noise"""[m
+         print("Adjusting for ambient noise. Please wait...")[m
+[36m@@ -275,174 +340,35 @@[m [mclass Jarvis:[m
+             return f"Error fetching weather: {e}"[m
+ [m
+     def open_application(self, app_name):[m
+[31m-        """Open common applications with enhanced handling and thorough system search"""[m
+[31m-        try:[m
+[31m-            if self.system_info == "Windows":[m
+[31m-                app_key = app_name.lower()[m
+[31m-                [m
+[31m-                # First check if it's a known application[m
+[31m-                if app_key in self.app_commands:[m
+[31m-                    app_info = self.app_commands[app_key][m
+[31m-                    [m
+[31m-                    if isinstance(app_info, str):[m
+[31m-                        try:[m
+[31m-                            subprocess.Popen([app_info])[m
+[31m-                            return f"I'm opening {app_name} for you now."[m
+[31m-                        except FileNotFoundError:[m
+[31m-                            return f"I found {app_name} in my known applications list, but I couldn't locate it on your system. Let me try searching for it."[m
+[31m-                    else:[m
+[31m-                        # Try specific paths first[m
+[31m-                        if "paths" in app_info:[m
+[31m-                            for path in app_info["paths"]:[m
+[31m-                                if os.path.exists(path):[m
+[31m-                                    try:[m
+[31m-                                        subprocess.Popen([path] + app_info.get("args", []))[m
+[31m-                                        return f"I'm opening {app_name} for you now."[m
+[31m-                                    except Exception as e:[m
+[31m-                                        print(f"Failed to open {path}: {e}")[m
+[31m-                                        continue[m
+[31m-                        [m
+[31m-                        # Try command directly[m
+[31m-                        try:[m
+[31m-                            subprocess.Popen([app_info["command"]] + app_info.get("args", []))[m
+[31m-                            return f"I'm opening {app_name} for you now."[m
+[31m-                        except FileNotFoundError:[m
+[31m-                            return f"I found {app_name} in my known applications list, but I couldn't locate it. Let me try searching your system."[m
+[31m-[m
+[31m-                # If we get here, either the app wasn't in known list or the known paths failed[m
+[31m-                searching_message = f"I'm searching your system for {app_name}. This might take a moment."[m
+[31m-                print(searching_message)[m
+[31m-[m
+[31m-                # Additional system paths to search[m
+[31m-                system_paths = [[m
+[31m-                    os.environ.get('SYSTEMROOT', 'C:\\Windows'),[m
+[31m-                    os.path.join(os.environ.get('SYSTEMROOT', 'C:\\Windows'), 'System32'),[m
+[31m-                    os.path.join(os.env
