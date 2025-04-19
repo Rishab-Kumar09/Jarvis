@@ -22,6 +22,16 @@ import win32com.client
 import pyttsx3
 from pathlib import Path
 import asyncio
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+import pickle
+import base64
+from email.mime.text import MIMEText
+import pytz
+import re
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -76,12 +86,30 @@ class Jarvis:
         self.elevenlabs_api_key = os.getenv('ELEVENLABS_API_KEY')
         self.elevenlabs_voice_id = os.getenv('ELEVENLABS_VOICE_ID')
         
-        # Voice settings optimized for JARVIS clone
+        # Initialize text-to-speech engine with faster rate
+        self.engine = pyttsx3.init()
+        
+        # Set properties for the voice - increased rate for faster speech
+        self.engine.setProperty('rate', 450)    # Significantly faster rate (default was 150)
+        self.engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
+        
+        # Get available voices and set to a British male voice if available
+        voices = self.engine.getProperty('voices')
+        for voice in voices:
+            if "british" in voice.name.lower() and "male" in voice.name.lower():
+                self.engine.setProperty('voice', voice.id)
+                break
+
+        # Initialize GmailManager
+        self.gmail_manager = GmailManager()
+
+        # Voice settings optimized for JARVIS clone with faster rate
         self.voice_settings = {
-            "stability": 0.53,  # Slightly lower stability for more natural variation
-            "similarity_boost": 0.85,  # Higher similarity to match the original voice better
-            "style": 0.0,  # Neutral style
-            "use_speaker_boost": True  # Enhanced clarity
+            "stability": 0.53,
+            "similarity_boost": 0.85,
+            "style": 0.0,
+            "use_speaker_boost": True,
+            "speed": 2.0  # Increased speed for faster response
         }
 
         # Add memory for active notes and last response
@@ -190,20 +218,6 @@ class Jarvis:
         self.last_question = None
         self.last_content = None
         self.waiting_for_response = False
-
-        # Initialize text-to-speech engine
-        self.engine = pyttsx3.init()
-        
-        # Set properties for the voice
-        self.engine.setProperty('rate', 150)    # Speed of speech
-        self.engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
-        
-        # Get available voices and set to a British male voice if available
-        voices = self.engine.getProperty('voices')
-        for voice in voices:
-            if "british" in voice.name.lower() and "male" in voice.name.lower():
-                self.engine.setProperty('voice', voice.id)
-                break
 
     def adjust_for_ambient_noise(self, source, duration=1):
         """Adjust recognizer energy threshold based on ambient noise"""
@@ -482,369 +496,259 @@ class Jarvis:
             return f"Error writing to Word: {e}"
 
     async def process_command(self, command):
-        """Process voice commands and generate responses with enhanced command recognition"""
+        """Process voice commands with context awareness"""
         try:
-            # Store the command in lowercase for easier matching
             cmd_lower = command.lower()
-            
-            # Check for responses to previous questions
-            if self.waiting_for_response and self.last_question:
-                if any(word in cmd_lower for word in ["yes", "yeah", "sure", "okay", "please", "yep", "yup"]):
-                    self.waiting_for_response = False
-                    if "read" in self.last_question.lower():
-                        # Read the last content
-                        if self.last_content:
-                            await self.speak(self.last_content)
-                            return "I hope that was helpful. Is there anything else you'd like me to do?"
-                    return "I'm not sure what you'd like me to do. Could you please repeat your request?"
-                elif any(word in cmd_lower for word in ["no", "nope", "nah", "don't", "skip"]):
-                    self.waiting_for_response = False
-                    return "Alright, is there anything else you'd like me to do?"
-            
-            # Reset context if it's a new command
-            self.waiting_for_response = False
-            self.last_question = None
-            
-            # Check for stop command first
-            if cmd_lower.strip() == "stop":
-                if self.is_speaking:
-                    self.interrupt_event.set()
-                    return "Stopping current speech..."
-                return "I wasn't speaking, but I'm ready for your next command."
-            
-            # First, check for specific task commands
-            if " and " in cmd_lower:
-                # Special handling for Word document creation
-                if ("create" in cmd_lower and "word" in cmd_lower and "write" in cmd_lower) or \
-                   ("open word" in cmd_lower and "write" in cmd_lower):
-                    # Extract the content to write
-                    content = None
-                    if "recipe" in cmd_lower or "how to make" in cmd_lower:
-                        # Extract recipe name
-                        recipe_name = None
-                        if "recipe" in cmd_lower:
-                            recipe_name = cmd_lower.split("recipe")[-1].strip()
-                            recipe_name = recipe_name.replace("to make", "").replace("for", "").strip()
-                        elif "how to make" in cmd_lower:
-                            recipe_name = cmd_lower.split("how to make")[-1].strip()
-                        
-                        if recipe_name:
-                            # Generate recipe using GPT
-                            response = openai_client.chat.completions.create(
-                                model="gpt-4",
-                                messages=[
-                                    {"role": "system", "content": """You are JARVIS, a culinary expert. When providing recipes:
-                                    1. Start with a brief introduction
-                                    2. List all ingredients with measurements
-                                    3. Provide clear step-by-step instructions
-                                    4. Add any helpful tips or variations
-                                    5. Keep it concise but detailed enough to follow"""},
-                                    {"role": "user", "content": f"Provide a recipe for {recipe_name}"}
-                                ]
-                            )
-                            content = response.choices[0].message.content
-                    
-                    if content:
-                        # Generate filename from recipe name
-                        filename = f"Recipe_{recipe_name.replace(' ', '_')}.docx"
-                        result = self.write_to_word(content, filename)
-                        self.last_content = content
-                        self.last_question = "Would you like me to read it to you?"
-                        self.waiting_for_response = True
-                        return f"{result} Would you like me to read it to you?"
-                
-                # Handle other compound commands
-                commands = cmd_lower.split(" and ")
-                responses = []
-                for cmd in commands:
-                    response = await self.process_command(cmd.strip())
-                    responses.append(response)
-                return " And ".join(responses)
+            response = None
 
-            # For recipe requests that need to be written to Notepad
-            elif any(word in cmd_lower for word in ["recipe", "how to make", "how do i make", "how do you make"]):
-                # Extract the recipe name
-                recipe_name = None
-                if "recipe" in cmd_lower:
-                    recipe_name = cmd_lower.split("recipe")[-1].strip()
-                    # Remove "to make" or "for" if present
-                    recipe_name = recipe_name.replace("to make", "").replace("for", "").strip()
-                elif "how to make" in cmd_lower:
-                    recipe_name = cmd_lower.split("how to make")[-1].strip()
-                elif "how do i make" in cmd_lower:
-                    recipe_name = cmd_lower.split("how do i make")[-1].strip()
-                elif "how do you make" in cmd_lower:
-                    recipe_name = cmd_lower.split("how do you make")[-1].strip()
-                
-                # Clean up the recipe name by removing notepad references and articles
-                for phrase in ["in notepad", "to notepad", "on notepad", "in a note", "to a note", "on a note", "the", "a", "an"]:
-                    if recipe_name and (recipe_name.lower().startswith(phrase + " ") or recipe_name.lower().endswith(" " + phrase)):
-                        recipe_name = recipe_name.lower().replace(phrase, "").strip()
-                
-                if recipe_name:
-                    # Generate recipe using GPT
-                    response = openai_client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[
-                            {"role": "system", "content": """You are JARVIS, a culinary expert. When providing recipes:
-                            1. Start with a brief introduction
-                            2. List all ingredients with measurements
-                            3. Provide clear step-by-step instructions
-                            4. Add any helpful tips or variations
-                            5. Keep it concise but detailed enough to follow"""},
-                            {"role": "user", "content": f"Provide a recipe for {recipe_name}"}
-                        ]
-                    )
-                    
-                    # Store the response
-                    recipe_content = response.choices[0].message.content
-                    self.last_response = recipe_content
-                    self.last_content = recipe_content
-                    
-                    # Write to notepad and return a confirmation message
-                    self.write_to_notepad(recipe_content)
-                    self.last_question = "Would you like me to read it to you?"
-                    self.waiting_for_response = True
-                    return f"I've written the recipe for {recipe_name} to Notepad. Would you like me to read it to you?"
-                else:
-                    return "Please specify what recipe you'd like me to provide."
-                    
-            # For general queries that need to be written to Notepad
-            elif any(phrase in cmd_lower for phrase in [
-                "write in notepad", 
-                "write to notepad", 
-                "write on notepad", 
-                "write the", 
-                "write a",
-                "write an",
-                "open notepad and write",
-                "write summary",
-                "write the summary",
-                "write a summary"
+            # Global exit command should be checked first
+            if not self.waiting_for_response and cmd_lower in ["quit", "goodbye", "shut down", "terminate"]:
+                await self.speak("Goodbye!")
+                sys.exit(0)
+
+            # Exit command for any interaction mode
+            if self.waiting_for_response and any(phrase in cmd_lower for phrase in [
+                "exit", "cancel", "go back", "never mind", "stop this", "leave it", 
+                "forget it", "skip it", "leave this", "get out", "done with this"
             ]):
-                # Extract the content to write
-                content = command
-                
-                # Handle different command patterns
-                if content.lower().startswith("open notepad and write"):
-                    content = content[len("open notepad and write"):].strip()
-                elif content.lower().startswith("write in notepad"):
-                    content = content[len("write in notepad"):].strip()
-                elif content.lower().startswith("write to notepad"):
-                    content = content[len("write to notepad"):].strip()
-                elif content.lower().startswith("write on notepad"):
-                    content = content[len("write on notepad"):].strip()
-                elif content.lower().startswith("write the"):
-                    content = content[len("write the"):].strip()
-                elif content.lower().startswith("write a"):
-                    content = content[len("write a"):].strip()
-                elif content.lower().startswith("write an"):
-                    content = content[len("write an"):].strip()
-                
-                # Clean up the content by removing additional notepad references
-                for phrase in ["in notepad", "to notepad", "on notepad"]:
-                    if content.lower().endswith(phrase):
-                        content = content[:-len(phrase)].strip()
-                
-                if not content:
-                    return "Please specify what you'd like me to write in Notepad."
-                
-                # Generate content using GPT if needed
-                if any(word in content.lower() for word in ["summary", "summarize", "summarization"]):
-                    # Extract what needs to be summarized
-                    summary_topic = content
-                    # Remove common phrases
-                    phrases_to_remove = [
-                        "summary of",
-                        "summarize",
-                        "write",
-                        "the",
-                        "a",
-                        "an",
-                        "summary",
-                        "about",
-                        "for",
-                        "me",
-                        "please"
-                    ]
-                    for phrase in phrases_to_remove:
-                        summary_topic = summary_topic.lower().replace(phrase, "").strip()
+                self.waiting_for_response = False
+                self.last_question = None
+                self.last_content = None
+                return "Alright, what else can I help you with?"
+
+            # Handle web search commands
+            if any(phrase in cmd_lower for phrase in ["search for", "look up", "google", "find", "search"]):
+                search_query = cmd_lower
+                for phrase in ["search for", "look up", "google", "find", "search"]:
+                    search_query = search_query.replace(phrase, "").strip()
+                if search_query:
+                    return self.search_web(search_query)
+                return "What would you like me to search for?"
+
+            # Email commands with more flexible matching
+            if any(word in cmd_lower for word in ["check", "show", "get", "read", "open"]) and any(word in cmd_lower for word in ["email", "gmail", "mail", "inbox", "message"]):
+                # Check for specific sender
+                sender_name = None
+                if "from" in cmd_lower:
+                    # Extract name after "from"
+                    words = cmd_lower.split("from")
+                    if len(words) > 1:
+                        sender_name = words[1].strip()
+
+                emails = self.gmail_manager.get_unread_emails()
+                if isinstance(emails, list):
+                    if not emails:
+                        return "You have no unread emails."
                     
-                    # If the summary topic is empty after cleaning, return error
-                    if not summary_topic:
-                        return "Please specify what you'd like me to summarize."
-                    
-                    response = openai_client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[
-                            {"role": "system", "content": """You are JARVIS, an expert at summarizing content. When summarizing books or topics:
-                            1. Start with a brief overview
-                            2. List key points and main ideas
-                            3. Include important lessons or takeaways
-                            4. Provide relevant examples or quotes
-                            5. End with a conclusion or final thoughts"""},
-                            {"role": "user", "content": f"Provide a detailed summary of {summary_topic}"}
+                    # Filter by sender if specified
+                    if sender_name:
+                        filtered_emails = [
+                            email for email in emails 
+                            if sender_name.lower() in email['sender'].lower()
                         ]
-                    )
+                        if not filtered_emails:
+                            return f"No unread emails found from {sender_name}."
+                        emails = filtered_emails
+
+                    # Store full response for display
+                    display_response = "Here are your unread emails:\n\n"
+                    for i, email in enumerate(emails, 1):
+                        display_response += f"{i}. From: {email['sender']}\nSubject: {email['subject']}\nDate: {email['date']}\n"
+                        if i < len(emails):
+                            display_response += "\n"
+
+                    # Create speech response without numbers
+                    speech_response = "Here are your unread emails. "
+                    for email in emails:
+                        speech_response += f"From {email['sender']}, Subject: {email['subject']}, Received {email['date']}. "
                     
-                    # Store the response
-                    summary_content = response.choices[0].message.content
-                    self.last_response = summary_content
-                    self.last_content = summary_content
-                    
-                    # Write to notepad and return a confirmation message
-                    self.write_to_notepad(summary_content)
-                    self.last_question = "Would you like me to read it to you?"
+                    self.last_content = display_response
+                    self.last_question = "Would you like me to read any of these emails in detail?"
                     self.waiting_for_response = True
-                    return f"I've written the summary of {summary_topic} to Notepad. Would you like me to read it to you?"
-                else:
-                    # For direct text, write it to notepad
-                    self.write_to_notepad(content)
-                    return f"I've written your text to Notepad. Would you like me to read it back to you?"
-                
-            # Handle requests to write last response to notepad
-            elif ("write" in cmd_lower or "save" in cmd_lower) and any(word in cmd_lower for word in ["it", "that", "this", "response", "recipe"]) and any(phrase in cmd_lower for phrase in ["notepad", "note"]):
-                if self.last_response:
-                    return self.write_to_notepad(self.last_response)
-                else:
-                    return "I don't have any previous response to write to Notepad."
                     
-            # Enhanced write to Notepad command
-            elif ("write" in cmd_lower or "append" in cmd_lower) and ("notepad" in cmd_lower or "note" in cmd_lower):
-                # Check if we should append
-                append = "append" in cmd_lower or "add" in cmd_lower
+                    # First return the display response, then speak
+                    response = display_response
+                    asyncio.create_task(self.speak(speech_response))
+                    return response
+                return emails
+
+            # Handle email expansion request with more flexible matching
+            if (self.waiting_for_response and self.last_question and "read" in self.last_question.lower()) or \
+               any(phrase in cmd_lower for phrase in ["expand email", "show email", "read email", "open email", "last email"]):
+                try:
+                    # Extract email number from various command formats
+                    email_num = None
+                    
+                    # Check for "last email" command
+                    if "last" in cmd_lower or "previous" in cmd_lower:
+                        email_num = 1  # First email is the latest
+                    else:
+                        # Handle ordinal numbers
+                        ordinal_map = {
+                            "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+                            "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+                            "last": 1, "latest": 1
+                        }
+                        
+                        # Check for ordinal words
+                        for ordinal, num in ordinal_map.items():
+                            if ordinal in cmd_lower:
+                                email_num = num
+                                break
+                        
+                        # If no ordinal found, try other patterns
+                        if email_num is None:
+                            words = cmd_lower.split()
+                            for i, word in enumerate(words):
+                                # Check for direct numbers
+                                if word.isdigit():
+                                    email_num = int(word)
+                                    break
+                                # Check for number after keywords
+                                elif i < len(words) - 1 and word in ["number", "email", "message", "#", "no", "no.", "num", "num."]:
+                                    if words[i + 1].isdigit():
+                                        email_num = int(words[i + 1])
+                                        break
+                    
+                    if email_num is None:
+                        return "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
+                    
+                    emails = self.gmail_manager.get_unread_emails()
+                    if isinstance(emails, list) and 1 <= email_num <= len(emails):
+                        email = emails[email_num - 1]
+                        # Store full response for display
+                        display_response = f"Here's email {email_num}:\n\n"
+                        display_response += f"From: {email['sender']}\n"
+                        display_response += f"Subject: {email['subject']}\n"
+                        display_response += f"Date: {email['date']}\n\n"
+                        display_response += f"Content:\n{email['body']}\n\n"
+                        display_response += "Would you like to reply to this email?"
+
+                        # Create speech response without the email number and content
+                        speech_response = f"Here's the email from {email['sender']} about {email['subject']}. Would you like to reply to this email?"
+                        
+                        self.last_content = display_response
+                        self.last_question = "Would you like to reply to this email?"
+                        self.waiting_for_response = True
+                        
+                        # First return the display response, then speak
+                        response = display_response
+                        asyncio.create_task(self.speak(speech_response))
+                        return response
+                    return "Invalid email number. Please try again or say 'leave it' to cancel."
+                except Exception as e:
+                    return f"Error processing email request: {str(e)}"
+
+            # Handle email reply with more flexible matching
+            if self.waiting_for_response and self.last_question and "reply" in self.last_question.lower():
+                if any(word in cmd_lower for word in ["yes", "yeah", "sure", "okay", "yep", "please", "go ahead"]):
+                    self.last_question = "What would you like to say in your reply?"
+                    # Don't repeat the email content, just ask for the reply
+                    speech_response = "What would you like to say in your reply?"
+                    asyncio.create_task(self.speak(speech_response))
+                    return "What would you like to say in your reply? Or say 'leave it' to cancel."
+                elif any(word in cmd_lower for word in ["no", "nope", "nah", "don't", "skip", "cancel", "leave it"]):
+                    self.waiting_for_response = False
+                    self.last_question = None
+                    return "Okay, is there anything else you'd like me to do?"
+
+            # Handle reply confirmation
+            if self.waiting_for_response and self.last_question == "confirm_reply":
+                if any(word in cmd_lower for word in ["yes", "yeah", "sure", "okay", "yep", "send", "go ahead"]):
+                    # Extract the reply text from last_content
+                    reply_text = self.last_content.split("I'll send the following reply:\n\n")[1].split("\n\nShould I send this reply?")[0]
+                    emails = self.gmail_manager.get_unread_emails()
+                    if isinstance(emails, list) and emails:
+                        result = self.gmail_manager.reply_to_email(emails[0]['id'], reply_text)
+                        self.waiting_for_response = False
+                        self.last_question = None
+                        self.last_content = None
+                        return result
+                    return "Sorry, I couldn't find the email to reply to."
+                elif any(word in cmd_lower for word in ["no", "nope", "nah", "modify", "change", "edit"]):
+                    self.last_question = "What would you like to say in your reply?"
+                    return "What would you like to say in your reply? Or say 'leave it' to cancel."
+                elif any(word in cmd_lower for word in ["leave it", "cancel", "exit", "never mind", "stop"]):
+                    self.waiting_for_response = False
+                    self.last_question = None
+                    self.last_content = None
+                    return "Okay, I won't send the reply. Is there anything else you'd like me to do?"
+
+            # Calendar commands
+            if "calendar" in cmd_lower:
+                if "check" in cmd_lower or "show" in cmd_lower or "list" in cmd_lower:
+                    events = self.gmail_manager.get_calendar_events()
+                    if isinstance(events, list):
+                        if not events:
+                            return "You have no upcoming events."
+                        
+                        response = "Here are your upcoming events:\n\n"
+                        for i, event in enumerate(events, 1):
+                            response += f"{i}. {event['summary']}\n"
+                            response += f"   When: {event['start']} to {event['end']}\n"
+                            if event['location']:
+                                response += f"   Where: {event['location']}\n"
+                            if event['attendees']:
+                                response += f"   Attendees: {', '.join(event['attendees'])}\n"
+                            if i < len(events):
+                                response += "\n"
+                        return response
+                    return events
+
+                elif "respond" in cmd_lower or "accept" in cmd_lower or "decline" in cmd_lower:
+                    # Extract event number and response type
+                    response_type = "accepted" if "accept" in cmd_lower else "declined" if "decline" in cmd_lower else None
+                    if not response_type:
+                        return "Would you like to accept or decline the event?"
+
+                    events = self.gmail_manager.get_calendar_events()
+                    if isinstance(events, list) and events:
+                        result = self.gmail_manager.respond_to_calendar_invite(events[0]['id'], response_type)
+                        return result
+                    return "Sorry, I couldn't find the calendar invite to respond to."
+
+            # Handle other commands
+            if "weather" in cmd_lower:
+                # Extract city name after "weather in" or "weather for"
+                city = None
+                if "weather in" in cmd_lower:
+                    city = cmd_lower.split("weather in")[1].strip()
+                elif "weather for" in cmd_lower:
+                    city = cmd_lower.split("weather for")[1].strip()
                 
-                # Check for filename specification
-                filename = None
-                if "as" in cmd_lower:
-                    parts = command.split(" as ")
-                    if len(parts) > 1:
-                        filename = parts[1].strip()
-                        command = parts[0]
-                
-                # Extract the text to write
-                text_to_write = command
-                
-                # Remove the write/append command from the beginning
-                if text_to_write.lower().startswith("write"):
-                    text_to_write = text_to_write[5:].strip()
-                elif text_to_write.lower().startswith("append"):
-                    text_to_write = text_to_write[6:].strip()
-                elif text_to_write.lower().startswith("in the notepad append"):
-                    text_to_write = text_to_write[19:].strip()
-                elif text_to_write.lower().startswith("in notepad append"):
-                    text_to_write = text_to_write[16:].strip()
-                
-                # Remove notepad/note phrases from the end
-                phrases_to_remove = [
-                    " in notepad",
-                    " to notepad",
-                    " on notepad",
-                    " in a note",
-                    " to a note",
-                    " on a note",
-                    " in the notepad",
-                    " to the notepad",
-                    " on the notepad",
-                    " append to notepad",
-                    " add to notepad"
-                ]
-                
-                for phrase in phrases_to_remove:
-                    if text_to_write.lower().endswith(phrase):
-                        text_to_write = text_to_write[:-len(phrase)].strip()
-                
-                if text_to_write:
-                    return self.write_to_notepad(text_to_write.strip(), filename, append)
-                else:
-                    return "Please specify what you'd like me to write in Notepad."
-            
-            # Save last response to notepad
-            elif ("save" in cmd_lower or "write" in cmd_lower) and "last" in cmd_lower and self.last_response:
-                filename = None
-                if "as" in cmd_lower:
-                    filename = command.split("as")[-1].strip()
-                return self.write_to_notepad(self.last_response, filename)
-            
-            # Close application command
-            elif "close" in cmd_lower:
+                if city:
+                    return self.get_weather(city)
+                return "Which city would you like to check the weather for?"
+
+            if "system info" in cmd_lower or "system status" in cmd_lower:
+                return self.get_system_info()
+
+            if "note" in cmd_lower:
+                if "new note" in cmd_lower:
+                    self.waiting_for_response = True
+                    self.last_question = "What would you like to write in the note?"
+                    return "What would you like me to write in the note?"
+                elif self.waiting_for_response and self.last_question and "note" in self.last_question:
+                    return self.write_to_notepad(cmd_lower)
+
+            # Application commands
+            if "open" in cmd_lower:
+                app_name = cmd_lower.replace("open", "").strip()
+                if app_name:
+                    return self.open_application(app_name)
+                return "Which application would you like me to open?"
+
+            if "close" in cmd_lower:
                 app_name = cmd_lower.replace("close", "").strip()
                 if app_name:
                     return self.close_application(app_name)
-                return "Please specify which application to close."
-            
-            # Enhanced open and search commands
-            elif "open" in cmd_lower:
-                # Special handling for "command prompt as admin"
-                if "command prompt as admin" in cmd_lower:
-                    return self.open_application("command prompt as admin")
-                # Special handling for Google with search
-                elif "google" in cmd_lower:
-                    # Check for search terms after "google"
-                    search_terms = None
-                    if "search for" in cmd_lower:
-                        search_terms = command.split("search for")[-1].strip()
-                    elif "look up" in cmd_lower:
-                        search_terms = command.split("look up")[-1].strip()
-                    elif "for" in cmd_lower:
-                        search_terms = command.split("for")[-1].strip()
-                    
-                    if search_terms:
-                        # Remove any "and" prefix if it exists
-                        search_terms = search_terms.lstrip("and").strip()
-                        return self.search_web(search_terms)
-                    else:
-                        return self.open_application("google")
-                else:
-                    app_name = cmd_lower.replace("open ", "").strip()
-                    return self.open_application(app_name)
-            
-            # Web search commands
-            elif "search for" in cmd_lower or "look up" in cmd_lower:
-                if "search for" in cmd_lower:
-                    query = command.split("search for")[-1].strip()
-                else:
-                    query = command.split("look up")[-1].strip()
-                # Remove any "and" prefix if it exists
-                query = query.lstrip("and").strip()
-                return self.search_web(query)
-            
-            # Execute Command Prompt command
-            elif "command prompt" in cmd_lower and "run" in cmd_lower:
-                # Extract the command to run
-                cmd_to_run = command.split("run")[-1].strip()
-                if cmd_to_run:
-                    return self.execute_cmd_command(cmd_to_run)
-                else:
-                    return "Please specify the command you'd like me to run in Command Prompt."
-            
-            # System information
-            elif "system status" in cmd_lower or "system info" in cmd_lower:
-                return self.get_system_info()
-            
-            # Weather information
-            elif "weather" in cmd_lower and "in" in cmd_lower:
-                city = command.split("in")[-1].strip()
-                return self.get_weather(city)
-            
-            # Time information
-            elif "what time" in cmd_lower or "current time" in cmd_lower:
-                return f"The current time is {datetime.datetime.now().strftime('%I:%M %p')}"
-            
-            # For general queries, use OpenAI
-            response = openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are JARVIS, a sophisticated AI assistant. Keep responses concise and helpful."},
-                    {"role": "user", "content": command}
-                ]
-            )
-            
-            # Store the response for potential later use
-            self.last_response = response.choices[0].message.content
-            return self.last_response
+                return "Which application would you like me to close?"
+
+            # If no specific command matched
+            return "I'm not sure how to help with that. Could you please rephrase your request?"
+
         except Exception as e:
-            return f"I encountered an error: {e}"
+            return f"I encountered an error: {str(e)}"
 
     def listen(self):
         """Listen for voice input using microphone with enhanced recognition"""
@@ -1207,6 +1111,297 @@ class Jarvis:
         
         # Clean up
         self.stop_background_listening()
+
+class GmailManager:
+    def __init__(self):
+        self.SCOPES = ['https://www.googleapis.com/auth/gmail.modify',
+                      'https://www.googleapis.com/auth/gmail.send',
+                      'https://www.googleapis.com/auth/calendar']
+        self.creds = None
+        self.gmail_service = None
+        self.calendar_service = None
+        self.initialize_services()
+
+    def initialize_services(self):
+        """Initialize Gmail and Calendar services"""
+        # Load credentials from token.pickle
+        if os.path.exists('token.pickle'):
+            with open('token.pickle', 'rb') as token:
+                self.creds = pickle.load(token)
+
+        # If credentials are invalid or don't exist, refresh or create them
+        if not self.creds or not self.creds.valid:
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                self.creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', self.SCOPES)
+                self.creds = flow.run_local_server(port=0)
+            
+            # Save credentials
+            with open('token.pickle', 'wb') as token:
+                pickle.dump(self.creds, token)
+
+        # Build services
+        self.gmail_service = build('gmail', 'v1', credentials=self.creds)
+        self.calendar_service = build('calendar', 'v3', credentials=self.creds)
+
+    def get_unread_emails(self, max_results=10):
+        """Get unread emails from inbox with human-readable time format"""
+        try:
+            results = self.gmail_service.users().messages().list(
+                userId='me',
+                labelIds=['INBOX', 'UNREAD'],
+                maxResults=max_results
+            ).execute()
+
+            messages = results.get('messages', [])
+            emails = []
+
+            for message in messages:
+                msg = self.gmail_service.users().messages().get(
+                    userId='me',
+                    id=message['id'],
+                    format='full'
+                ).execute()
+
+                headers = msg['payload']['headers']
+                subject = next(h['value'] for h in headers if h['name'] == 'Subject')
+                sender = next(h['value'] for h in headers if h['name'] == 'From')
+                date_str = next(h['value'] for h in headers if h['name'] == 'Date')
+
+                # Convert email date to human-readable format
+                try:
+                    # Parse the email date
+                    email_date = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %z')
+                    # Convert to local time
+                    local_date = email_date.astimezone()
+                    # Format date in a human-friendly way
+                    if local_date.date() == datetime.now().date():
+                        date = f"Today at {local_date.strftime('%I:%M %p')}"
+                    elif local_date.date() == (datetime.now() - timedelta(days=1)).date():
+                        date = f"Yesterday at {local_date.strftime('%I:%M %p')}"
+                    else:
+                        date = local_date.strftime('%B %d at %I:%M %p')
+                except:
+                    date = date_str  # Fallback to original date if parsing fails
+
+                # Clean up sender name for speech
+                if '<' in sender:
+                    sender = sender.split('<')[0].strip()
+                    if sender.endswith('"'):
+                        sender = sender[:-1]
+                    if sender.startswith('"'):
+                        sender = sender[1:]
+
+                # Get email body
+                if 'parts' in msg['payload']:
+                    parts = msg['payload']['parts']
+                    data = parts[0]['body'].get('data', '')
+                else:
+                    data = msg['payload']['body'].get('data', '')
+
+                if data:
+                    text = base64.urlsafe_b64decode(data).decode('utf-8')
+                    # Clean up the body text for speech
+                    text = text.replace('\r\n', ' ').replace('\n', ' ')
+                    # Remove URLs and email addresses for cleaner speech
+                    text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', 'link', text)
+                    text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', 'email address', text)
+                else:
+                    text = "No content"
+
+                emails.append({
+                    'id': message['id'],
+                    'subject': subject,
+                    'sender': sender,
+                    'date': date,
+                    'snippet': msg['snippet'],
+                    'body': text
+                })
+
+            return emails
+
+        except Exception as e:
+            return f"Error fetching emails: {str(e)}"
+
+    def send_email(self, to, subject, body):
+        """Send an email"""
+        try:
+            message = MIMEText(body)
+            message['to'] = to
+            message['subject'] = subject
+
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+            self.gmail_service.users().messages().send(
+                userId='me',
+                body={'raw': raw}
+            ).execute()
+
+            return "Email sent successfully!"
+        except Exception as e:
+            return f"Error sending email: {str(e)}"
+
+    def reply_to_email(self, email_id, reply_text):
+        """Reply to a specific email"""
+        try:
+            # Get the original message to extract thread ID and references
+            original = self.gmail_service.users().messages().get(
+                userId='me',
+                id=email_id,
+                format='full'
+            ).execute()
+
+            # Create reply message
+            headers = original['payload']['headers']
+            subject = next(h['value'] for h in headers if h['name'] == 'Subject')
+            if not subject.startswith('Re:'):
+                subject = f"Re: {subject}"
+
+            # Get the sender's email address
+            from_header = next(h['value'] for h in headers if h['name'] == 'From')
+            to_email = from_header.split('<')[-1].strip('>')
+
+            message = MIMEText(reply_text)
+            message['to'] = to_email
+            message['subject'] = subject
+            message['In-Reply-To'] = email_id
+            message['References'] = email_id
+
+            raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+            self.gmail_service.users().messages().send(
+                userId='me',
+                body={'raw': raw}
+            ).execute()
+
+            return "Reply sent successfully!"
+        except Exception as e:
+            return f"Error sending reply: {str(e)}"
+
+    def get_calendar_events(self, days=7):
+        """Get upcoming calendar events with human-readable time format"""
+        try:
+            now = datetime.utcnow().isoformat() + 'Z'
+            end_date = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
+
+            events_result = self.calendar_service.events().list(
+                calendarId='primary',
+                timeMin=now,
+                timeMax=end_date,
+                maxResults=10,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            events = events_result.get('items', [])
+            formatted_events = []
+
+            for event in events:
+                start = event['start'].get('dateTime', event['start'].get('date'))
+                end = event['end'].get('dateTime', event['end'].get('date'))
+                
+                # Convert to local timezone and human-readable format
+                if 'T' in start:  # This indicates it's a datetime
+                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    local_tz = pytz.timezone('America/New_York')
+                    start_local = start_dt.astimezone(local_tz)
+                    end_local = end_dt.astimezone(local_tz)
+
+                    # Format dates in a human-friendly way
+                    if start_local.date() == datetime.now().date():
+                        start_str = f"Today at {start_local.strftime('%I:%M %p')}"
+                        end_str = f"until {end_local.strftime('%I:%M %p')}"
+                    elif start_local.date() == (datetime.now() + timedelta(days=1)).date():
+                        start_str = f"Tomorrow at {start_local.strftime('%I:%M %p')}"
+                        end_str = f"until {end_local.strftime('%I:%M %p')}"
+                    else:
+                        start_str = start_local.strftime('%A, %B %d at %I:%M %p')
+                        end_str = f"until {end_local.strftime('%I:%M %p')}"
+                else:
+                    # All-day event
+                    start_dt = datetime.strptime(start, '%Y-%m-%d')
+                    if start_dt.date() == datetime.now().date():
+                        start_str = "Today"
+                    elif start_dt.date() == (datetime.now() + timedelta(days=1)).date():
+                        start_str = "Tomorrow"
+                    else:
+                        start_str = start_dt.strftime('%A, %B %d')
+                    end_str = "(all day)"
+
+                # Clean up attendees list for speech
+                attendees = []
+                for attendee in event.get('attendees', []):
+                    email = attendee.get('email', '')
+                    name = email.split('@')[0] if '@' in email else email
+                    attendees.append(name)
+
+                formatted_events.append({
+                    'summary': event['summary'],
+                    'start': start_str,
+                    'end': end_str,
+                    'description': event.get('description', ''),
+                    'location': event.get('location', ''),
+                    'attendees': attendees
+                })
+
+            return formatted_events
+        except Exception as e:
+            return f"Error fetching calendar events: {str(e)}"
+
+    def create_calendar_event(self, summary, start_time, end_time, description=None, location=None, attendees=None):
+        """Create a new calendar event"""
+        try:
+            event = {
+                'summary': summary,
+                'location': location,
+                'description': description,
+                'start': {
+                    'dateTime': start_time.isoformat(),
+                    'timeZone': 'America/New_York',  # Adjust to your timezone
+                },
+                'end': {
+                    'dateTime': end_time.isoformat(),
+                    'timeZone': 'America/New_York',  # Adjust to your timezone
+                }
+            }
+
+            if attendees:
+                event['attendees'] = [{'email': email} for email in attendees]
+
+            event = self.calendar_service.events().insert(
+                calendarId='primary',
+                body=event,
+                sendUpdates='all'
+            ).execute()
+
+            return f"Event created successfully! Link: {event.get('htmlLink')}"
+        except Exception as e:
+            return f"Error creating event: {str(e)}"
+
+    def respond_to_calendar_invite(self, event_id, response='accepted'):
+        """Respond to a calendar invite"""
+        try:
+            responses = {
+                'accepted': 'accepted',
+                'declined': 'declined',
+                'tentative': 'tentative'
+            }
+            
+            if response.lower() not in responses:
+                return "Invalid response. Please use 'accepted', 'declined', or 'tentative'."
+
+            self.calendar_service.events().patch(
+                calendarId='primary',
+                eventId=event_id,
+                body={
+                    'status': responses[response.lower()]
+                }
+            ).execute()
+
+            return f"Calendar invite {response} successfully!"
+        except Exception as e:
+            return f"Error responding to calendar invite: {str(e)}"
 
 async def main():
     jarvis = Jarvis()
