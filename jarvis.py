@@ -511,7 +511,7 @@ class Jarvis:
                 sys.exit(0)
 
             # Exit command for any interaction mode
-            if self.waiting_for_response and any(phrase in cmd_lower for phrase in [
+            if any(phrase in cmd_lower for phrase in [
                 "exit", "cancel", "go back", "never mind", "stop this", "leave it", 
                 "forget it", "skip it", "leave this", "get out", "done with this",
                 "exit email", "leave email", "stop reading", "stop emails"
@@ -533,8 +533,13 @@ class Jarvis:
                     return self.search_web(search_query)
                 return "What would you like me to search for?"
 
-            # Handle all email checking commands
-            if (cmd_lower.strip() in ["check emails", "check email", "check my emails", "check my email"] or
+            # Handle all email checking commands - skip if command contains exit phrases
+            if not any(phrase in cmd_lower for phrase in [
+                "exit", "cancel", "go back", "never mind", "stop this", "leave it", 
+                "forget it", "skip it", "leave this", "get out", "done with this",
+                "exit email", "leave email", "stop reading", "stop emails"
+            ]) and (
+                cmd_lower.strip() in ["check emails", "check email", "check my emails", "check my email"] or
                 (any(word in cmd_lower for word in ["check", "show", "get", "read", "open"]) and 
                  any(word in cmd_lower for word in ["email", "gmail", "mail", "inbox", "message"]))
             ):
