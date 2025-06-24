@@ -45,10 +45,10 @@ class Jarvis:
     def __init__(self):
         self.recognizer = sr.Recognizer()
         # Adjust recognition parameters
-        self.recognizer.energy_threshold = 300  # Minimum audio energy to consider for recording
+        self.recognizer.energy_threshold = 1000  # Minimum audio energy to consider for recording
         self.recognizer.dynamic_energy_threshold = True  # Automatically adjust for ambient noise
         self.recognizer.dynamic_energy_adjustment_damping = 0.15
-        self.recognizer.dynamic_energy_ratio = 1.5
+        self.recognizer.dynamic_energy_ratio = 2.0
         self.recognizer.pause_threshold = 1.2  # Increased pause threshold to wait longer for complete phrases
         self.recognizer.phrase_threshold = 0.5  # Increased to ensure we catch the start of phrases
         self.recognizer.non_speaking_duration = 1.0  # Increased to better detect end of speaking
@@ -73,7 +73,7 @@ class Jarvis:
         self.audio_queue = queue.Queue()
         self.command_queue = queue.Queue()
         self.interrupt_event = threading.Event()
-        self.interrupt_threshold = 0.1  # Threshold for interruption detection
+        self.interrupt_threshold = 0.5  # Threshold for interruption detection
         self.background_listening = True
         self.last_phrase_time = time.time()
         self.command_timeout = 2.0  # Time to wait for command completion
@@ -318,7 +318,7 @@ class Jarvis:
         try:
             search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
             webbrowser.open(search_url)
-            return f"Searching the web for: {query}"
+            return f"Opening web search for: {query}"
         except Exception as e:
             return f"Error searching web: {e}"
 
@@ -501,6 +501,10 @@ class Jarvis:
             cmd_lower = command.lower()
             response = None
 
+            # Skip processing if the command matches JARVIS's greeting
+            if "hello" in cmd_lower and "jarvis" in cmd_lower and "assist" in cmd_lower:
+                return None
+
             # Global exit command should be checked first
             if not self.waiting_for_response and cmd_lower in ["quit", "goodbye", "shut down", "terminate"]:
                 await self.speak("Goodbye!")
@@ -538,6 +542,9 @@ class Jarvis:
                 emails = self.gmail_manager.get_unread_emails()
                 if isinstance(emails, list):
                     if not emails:
+                        self.waiting_for_response = False
+                        self.last_question = None
+                        await self.speak("You have no unread emails.")
                         return "You have no unread emails."
                     
                     # Filter by sender if specified
@@ -547,6 +554,9 @@ class Jarvis:
                             if sender_name.lower() in email['sender'].lower()
                         ]
                         if not filtered_emails:
+                            self.waiting_for_response = False
+                            self.last_question = None
+                            await self.speak(f"No unread emails found from {sender_name}.")
                             return f"No unread emails found from {sender_name}."
                         emails = filtered_emails
 
@@ -557,19 +567,19 @@ class Jarvis:
                         if i < len(emails):
                             display_response += "\n"
 
-                    # Create speech response without numbers
+                    # Create speech response with full details
                     speech_response = "Here are your unread emails. "
                     for email in emails:
                         speech_response += f"From {email['sender']}, Subject: {email['subject']}, Received {email['date']}. "
+                    speech_response += "Would you like me to read any of these emails in detail?"
                     
                     self.last_content = display_response
                     self.last_question = "Would you like me to read any of these emails in detail?"
                     self.waiting_for_response = True
                     
-                    # First return the display response, then speak
-                    response = display_response
-                    asyncio.create_task(self.speak(speech_response))
-                    return response
+                    # Speak the speech response and return the display response
+                    await self.speak(speech_response)
+                    return display_response
                 return emails
 
             # Handle email expansion request with more flexible matching
@@ -611,6 +621,7 @@ class Jarvis:
                                         break
                     
                     if email_num is None:
+                        await self.speak("Which email would you like me to read? Please specify the number or say 'leave it' to cancel.")
                         return "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
                     
                     emails = self.gmail_manager.get_unread_emails()
@@ -624,20 +635,27 @@ class Jarvis:
                         display_response += f"Content:\n{email['body']}\n\n"
                         display_response += "Would you like to reply to this email?"
 
-                        # Create speech response without the email number and content
-                        speech_response = f"Here's the email from {email['sender']} about {email['subject']}. Would you like to reply to this email?"
+                        # Create speech response with full details
+                        speech_response = f"Here's the email from {email['sender']} about {email['subject']}. {email['body']}. Would you like to reply to this email?"
                         
                         self.last_content = display_response
                         self.last_question = "Would you like to reply to this email?"
                         self.waiting_for_response = True
                         
-                        # First return the display response, then speak
-                        response = display_response
-                        asyncio.create_task(self.speak(speech_response))
-                        return response
+                        # Speak the speech response and return the display response
+                        await self.speak(speech_response)
+                        return display_response
+                    
+                    self.waiting_for_response = False
+                    self.last_question = None
+                    await self.speak("Invalid email number. Please try again or say 'leave it' to cancel.")
                     return "Invalid email number. Please try again or say 'leave it' to cancel."
                 except Exception as e:
-                    return f"Error processing email request: {str(e)}"
+                    self.waiting_for_response = False
+                    self.last_question = None
+                    error_msg = f"Error processing email request: {str(e)}"
+                    await self.speak(error_msg)
+                    return error_msg
 
             # Handle email reply with more flexible matching
             if self.waiting_for_response and self.last_question and "reply" in self.last_question.lower():
@@ -674,30 +692,56 @@ class Jarvis:
                     self.last_content = None
                     return "Okay, I won't send the reply. Is there anything else you'd like me to do?"
 
-            # Calendar commands
-            if "calendar" in cmd_lower:
-                if "check" in cmd_lower or "show" in cmd_lower or "list" in cmd_lower:
+            # Calendar commands with more flexible matching
+            if any(word in cmd_lower for word in ["calendar", "event", "schedule", "meeting"]):
+                # Check/Show/List events
+                if any(word in cmd_lower for word in ["check", "show", "list", "what", "any", "get", "see", "tell"]):
                     events = self.gmail_manager.get_calendar_events()
                     if isinstance(events, list):
                         if not events:
+                            self.waiting_for_response = False
+                            self.last_question = None
+                            await self.speak("You have no upcoming events.")
                             return "You have no upcoming events."
                         
-                        response = "Here are your upcoming events:\n\n"
+                        # Store full response for display
+                        display_response = "Here are your upcoming events:\n\n"
                         for i, event in enumerate(events, 1):
-                            response += f"{i}. {event['summary']}\n"
-                            response += f"   When: {event['start']} to {event['end']}\n"
+                            display_response += f"{i}. {event['summary']}\n"
+                            display_response += f"   When: {event['start']} {event['end']}\n"
                             if event['location']:
-                                response += f"   Where: {event['location']}\n"
+                                display_response += f"   Where: {event['location']}\n"
                             if event['attendees']:
-                                response += f"   Attendees: {', '.join(event['attendees'])}\n"
+                                display_response += f"   Attendees: {', '.join(event['attendees'])}\n"
                             if i < len(events):
-                                response += "\n"
-                        return response
+                                display_response += "\n"
+
+                        # Create speech response with full details
+                        speech_response = "Here are your upcoming events. "
+                        for event in events:
+                            speech_response += f"{event['summary']} {event['start']} {event['end']}. "
+                            if event['location']:
+                                speech_response += f"Location: {event['location']}. "
+                        speech_response += "Would you like details about any specific event?"
+                        
+                        self.last_content = display_response
+                        self.last_question = "Would you like me to give you more details about any event?"
+                        self.waiting_for_response = True
+                        
+                        # Speak the speech response and return the display response
+                        await self.speak(speech_response)
+                        return display_response
                     return events
 
-                elif "respond" in cmd_lower or "accept" in cmd_lower or "decline" in cmd_lower:
+                # Respond to calendar invites
+                elif any(word in cmd_lower for word in ["respond", "accept", "decline", "yes", "no"]):
                     # Extract event number and response type
-                    response_type = "accepted" if "accept" in cmd_lower else "declined" if "decline" in cmd_lower else None
+                    response_type = None
+                    if any(word in cmd_lower for word in ["accept", "yes", "confirm", "attending", "going"]):
+                        response_type = "accepted"
+                    elif any(word in cmd_lower for word in ["decline", "no", "reject", "can't", "cannot", "not going"]):
+                        response_type = "declined"
+                    
                     if not response_type:
                         return "Would you like to accept or decline the event?"
 
@@ -705,7 +749,10 @@ class Jarvis:
                     if isinstance(events, list) and events:
                         result = self.gmail_manager.respond_to_calendar_invite(events[0]['id'], response_type)
                         return result
-                    return "Sorry, I couldn't find the calendar invite to respond to."
+                    return "Sorry, I couldn't find any calendar invites to respond to."
+
+                # If no specific calendar action is mentioned
+                return "Would you like me to check your calendar or respond to an invite?"
 
             # Handle other commands
             if "weather" in cmd_lower:
@@ -990,6 +1037,11 @@ class Jarvis:
             while self.background_listening:
                 try:
                     print("\nListening...")
+                    # Skip processing if JARVIS is currently speaking
+                    if self.is_speaking:
+                        time.sleep(0.1)  # Short sleep to prevent CPU overuse
+                        continue
+                        
                     # Listen for audio with longer timeout and phrase limit
                     audio = self.recognizer.listen(
                         source,
@@ -998,24 +1050,30 @@ class Jarvis:
                     )
                     
                     try:
+                        # Skip processing if JARVIS started speaking while we were listening
+                        if self.is_speaking:
+                            continue
+                            
                         # Process audio in background
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
                         
+                        # Skip if the text matches JARVIS's last response
+                        if self.last_response and (
+                            text.lower() in self.last_response.lower() or 
+                            self.last_response.lower() in text.lower()
+                        ):
+                            continue
+                            
                         # Special handling for "stop" command
                         if text.lower().strip() == "stop":
                             print("Stop command detected!")
                             if self.is_speaking:
                                 self.interrupt_event.set()
-                                self.command_queue.put(text)
-                            continue
-                        
-                        # If speaking, treat as interruption
-                        if self.is_speaking:
-                            print("Interruption detected through speech!")
-                            self.interrupt_event.set()
                             continue
                             
+                        print("Recognized:", text)
+                        
                         # Check if this is part of an ongoing command
                         if current_time - self.last_phrase_time < self.command_timeout:
                             # Get the previous incomplete command if it exists
@@ -1025,7 +1083,6 @@ class Jarvis:
                             except queue.Empty:
                                 pass
                         
-                        print("Recognized:", text)
                         self.last_phrase_time = current_time
                         
                         # Wait briefly to see if there's more to the command
@@ -1033,6 +1090,11 @@ class Jarvis:
                         wait_start = time.time()
                         while await_more and time.time() - wait_start < self.command_timeout:
                             try:
+                                # Skip if JARVIS is speaking
+                                if self.is_speaking:
+                                    await_more = False
+                                    continue
+                                    
                                 # Try to detect more speech
                                 more_audio = self.recognizer.listen(
                                     source,
@@ -1040,6 +1102,15 @@ class Jarvis:
                                     phrase_time_limit=5
                                 )
                                 more_text = self.recognizer.recognize_google(more_audio, language="en-US")
+                                
+                                # Skip if this part matches JARVIS's last response
+                                if self.last_response and (
+                                    more_text.lower() in self.last_response.lower() or 
+                                    self.last_response.lower() in more_text.lower()
+                                ):
+                                    await_more = False
+                                    continue
+                                    
                                 text = f"{text} {more_text}"
                                 print("Additional input:", more_text)
                                 wait_start = time.time()  # Reset wait time for more potential speech
@@ -1048,13 +1119,15 @@ class Jarvis:
                             except Exception:
                                 await_more = False
                         
-                        # Only queue the command if it seems complete
-                        if len(text.split()) >= 2:  # Ensure command has at least 2 words
+                        # Only process commands that seem complete
+                        if len(text.split()) >= 2:  # Command has at least 2 words
                             print("Final command:", text)
                             self.command_queue.put(text)
                         else:
                             print("Command too short, waiting for more input...")
-                            self.command_queue.put(text)  # Store it for potential continuation
+                            # Store short command temporarily without processing it
+                            self.last_phrase_time = current_time  # Update time to allow for continuation
+                            # Don't put in command queue yet
                             
                     except sr.UnknownValueError:
                         # Ignore unrecognized audio
@@ -1075,7 +1148,10 @@ class Jarvis:
         # Start background listening
         self.start_background_listening()
         
-        await self.speak("Hello, I am JARVIS. How may I assist you?")
+        # Set initial greeting as last response to prevent self-listening
+        initial_greeting = "Hello, I am JARVIS. How may I assist you?"
+        self.last_response = initial_greeting
+        await self.speak(initial_greeting)
         
         while True:
             try:
@@ -1094,13 +1170,14 @@ class Jarvis:
                 response = await self.process_command(command)
                 print(f"Response: {response}")
                 
-                # Always speak the response, even if it's an error message
-                # Only skip speaking if we were interrupted
-                if not self.interrupt_event.is_set():
-                    # For empty or None responses, provide a default message
-                    if not response or response.strip() == "":
-                        response = "I apologize, but I couldn't process that command properly. Could you please try again?"
+                # Only speak if we have a valid response and weren't interrupted
+                if response and not self.interrupt_event.is_set():
+                    # Store current response before speaking
+                    self.last_content = response
                     await self.speak(response)
+                    # Update last response only if it was spoken successfully
+                    if not self.interrupt_event.is_set():
+                        self.last_response = response
                     
             except Exception as e:
                 error_message = f"I encountered an error: {str(e)}"

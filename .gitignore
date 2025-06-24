@@ -432,3 +432,10 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Google OAuth credentials and tokens
+credentials.json
+token.pickle
+
+# Logs
+*.log
