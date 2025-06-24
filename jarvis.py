@@ -505,20 +505,24 @@ class Jarvis:
             if "hello" in cmd_lower and "jarvis" in cmd_lower and "assist" in cmd_lower:
                 return None
 
-            # Global exit command should be checked first
-            if not self.waiting_for_response and cmd_lower in ["quit", "goodbye", "shut down", "terminate"]:
-                await self.speak("Goodbye!")
+            # Global exit commands should be checked first
+            if cmd_lower.strip() in ["quit", "goodbye", "goodbye jarvis", "bye jarvis", "shut down", "terminate", "exit jarvis"]:
+                await self.speak("Goodbye! Have a great day!")
                 sys.exit(0)
 
             # Exit command for any interaction mode
             if self.waiting_for_response and any(phrase in cmd_lower for phrase in [
                 "exit", "cancel", "go back", "never mind", "stop this", "leave it", 
-                "forget it", "skip it", "leave this", "get out", "done with this"
+                "forget it", "skip it", "leave this", "get out", "done with this",
+                "exit email", "leave email", "stop reading", "stop emails"
             ]):
                 self.waiting_for_response = False
                 self.last_question = None
                 self.last_content = None
-                return "Alright, what else can I help you with?"
+                response = "Alright, what else can I help you with?"
+                print("\n" + response)
+                await self.speak(response)
+                return response
 
             # Handle web search commands
             if any(phrase in cmd_lower for phrase in ["search for", "look up", "google", "find", "search"]):
@@ -665,6 +669,18 @@ class Jarvis:
                                         break
                     
                     if email_num is None:
+                        # Check for exit commands first
+                        if any(phrase in cmd_lower for phrase in [
+                            "leave it", "exit", "cancel", "stop", "go back",
+                            "never mind", "exit email", "leave email"
+                        ]):
+                            self.waiting_for_response = False
+                            self.last_question = None
+                            response = "Alright, what else can I help you with?"
+                            print("\n" + response)
+                            await self.speak(response)
+                            return response
+                            
                         response = "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
                         print("\n" + response)
                         await self.speak(response)
