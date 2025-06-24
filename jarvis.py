@@ -237,6 +237,14 @@ class Jarvis:
                 "paths": [
                     "C:\\Windows\\explorer.exe"
                 ]
+            },
+            "slack": {
+                "command": "slack.exe",
+                "paths": [
+                    "C:\\Users\\Rishi\\AppData\\Local\\slack\\app-4.44.63\\slack.exe",
+                    "C:\\Users\\Rishi\\AppData\\Local\\slack\\app-4.44.59\\slack.exe",
+                    "C:\\Users\\Rishi\\AppData\\Local\\slack\\slack.exe"
+                ]
             }
         }
 
@@ -541,6 +549,52 @@ class Jarvis:
                 self.last_question = None
                 self.last_content = None
                 return "Alright, what else can I help you with?"
+
+            # Handle Word document writing commands
+            if ("write" in cmd_lower or "create" in cmd_lower) and ("word" in cmd_lower):
+                # Check if this is a recipe request
+                if "recipe" in cmd_lower:
+                    # Extract what recipe to write
+                    recipe_item = None
+                    if "recipe" in cmd_lower:
+                        # Split by "recipe" and look for what comes after
+                        parts = cmd_lower.split("recipe", 1)
+                        if len(parts) > 1:
+                            recipe_text = parts[1].strip()
+                            # Remove common phrases
+                            recipe_text = recipe_text.replace("for", "").replace("to make", "").replace("of", "").replace("a", "").strip()
+                            if recipe_text:
+                                recipe_item = recipe_text
+                    
+                    if recipe_item:
+                        # Generate recipe using OpenAI
+                        try:
+                            response = openai_client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[
+                                    {"role": "system", "content": "You are a helpful cooking assistant. Provide recipes in a clear, step-by-step format."},
+                                    {"role": "user", "content": f"Write a simple recipe for {recipe_item}. Include ingredients list and step-by-step instructions."}
+                                ]
+                            )
+                            recipe = response.choices[0].message.content
+                            return self.write_to_word(recipe, f"recipe_{recipe_item.replace(' ', '_')}.docx")
+                        except Exception as e:
+                            return f"Error generating recipe: {str(e)}"
+                    return "What recipe would you like me to write?"
+                
+                # Handle regular writing commands
+                text_to_write = None
+                if "write" in cmd_lower:
+                    # Split by "write" and take everything after it
+                    parts = cmd_lower.split("write", 1)
+                    if len(parts) > 1:
+                        text_to_write = parts[1].strip()
+                        # Remove "in word", "to word", etc.
+                        text_to_write = text_to_write.replace("in word", "").replace("to word", "").replace("in the word", "").replace("to the word", "").strip()
+                
+                if text_to_write:
+                    return self.write_to_word(text_to_write)
+                return "What would you like me to write in Word?"
 
             # Handle notepad writing commands
             if ("write" in cmd_lower or "create" in cmd_lower) and ("notepad" in cmd_lower or "note" in cmd_lower):
