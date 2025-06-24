@@ -522,7 +522,20 @@ class Jarvis:
                 response = "Alright, what else can I help you with?"
                 print("\n" + response)
                 await self.speak(response)
+                # Store this as the last response to prevent re-processing
+                self.last_response = cmd_lower
                 return response
+
+            # Skip if this command matches or is part of our last response
+            if self.last_response and (
+                cmd_lower in self.last_response.lower() or 
+                self.last_response.lower() in cmd_lower or
+                any(phrase in self.last_response.lower() for phrase in [
+                    "leave it", "exit", "cancel", "go back", "never mind",
+                    "exit email", "leave email", "stop reading"
+                ])
+            ):
+                return None
 
             # Handle web search commands
             if any(phrase in cmd_lower for phrase in ["search for", "look up", "google", "find", "search"]):
@@ -1098,11 +1111,14 @@ class Jarvis:
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
                         
-                        # Skip if the text matches JARVIS's last response
-                        if self.last_response and (
+                        # Skip if the text matches JARVIS's last response or contains exit commands
+                        if (self.last_response and (
                             text.lower() in self.last_response.lower() or 
                             self.last_response.lower() in text.lower()
-                        ):
+                        )) or any(phrase in text.lower() for phrase in [
+                            "leave it", "exit", "cancel", "go back", "never mind",
+                            "exit email", "leave email", "stop reading"
+                        ]):
                             continue
                             
                         # Special handling for "stop" command
