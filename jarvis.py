@@ -45,13 +45,13 @@ class Jarvis:
     def __init__(self):
         self.recognizer = sr.Recognizer()
         # Adjust recognition parameters
-        self.recognizer.energy_threshold = 1000  # Minimum audio energy to consider for recording
+        self.recognizer.energy_threshold = 300  # Lowered from 1000 to be more sensitive
         self.recognizer.dynamic_energy_threshold = True  # Automatically adjust for ambient noise
-        self.recognizer.dynamic_energy_adjustment_damping = 0.15
-        self.recognizer.dynamic_energy_ratio = 2.0
-        self.recognizer.pause_threshold = 1.2  # Increased pause threshold to wait longer for complete phrases
-        self.recognizer.phrase_threshold = 0.5  # Increased to ensure we catch the start of phrases
-        self.recognizer.non_speaking_duration = 1.0  # Increased to better detect end of speaking
+        self.recognizer.dynamic_energy_adjustment_damping = 0.1  # Lowered to adjust more quickly
+        self.recognizer.dynamic_energy_ratio = 1.5  # Lowered to be more sensitive
+        self.recognizer.pause_threshold = 0.8  # Lowered to detect shorter pauses
+        self.recognizer.phrase_threshold = 0.3  # Lowered to catch quieter phrase starts
+        self.recognizer.non_speaking_duration = 0.5  # Lowered to be more responsive
 
         self.voice_profile = {
             "instructions": """Voice Profile:
@@ -529,6 +529,50 @@ class Jarvis:
                     return self.search_web(search_query)
                 return "What would you like me to search for?"
 
+            # Specific check for "check emails" command
+            if cmd_lower.strip() in ["check emails", "check email", "check my emails", "check my email"]:
+                # Show loading message first
+                print("\nChecking your emails...")
+                
+                emails = self.gmail_manager.get_unread_emails()
+                if isinstance(emails, list):
+                    if not emails:
+                        response = "You have no unread emails."
+                        print(response)
+                        await self.speak(response)
+                        return response
+                    
+                    # Store full response for display with previews
+                    display_response = f"You have {len(emails)} unread emails:\n\n"
+                    for i, email in enumerate(emails, 1):
+                        display_response += f"{i}. From: {email['sender']}\n"
+                        display_response += f"   Subject: {email['subject']}\n"
+                        display_response += f"   Date: {email['date']}\n"
+                        display_response += f"   Preview: {email['preview']}\n"
+                        if i < len(emails):
+                            display_response += "\n"
+
+                    # Create speech response with less detail
+                    speech_response = f"You have {len(emails)} unread emails. "
+                    for email in emails:
+                        speech_response += f"From {email['sender']}, Subject: {email['subject']}. "
+                    speech_response += "Would you like me to read any of these emails in detail?"
+                    
+                    self.last_content = display_response
+                    self.last_question = "Would you like me to read any of these emails in detail?"
+                    self.waiting_for_response = True
+                    
+                    # Display the text first
+                    print("\n" + display_response)
+                    # Then speak
+                    await self.speak(speech_response)
+                    return display_response
+                
+                response = "Sorry, I couldn't access your emails at the moment. Please make sure you're properly authenticated."
+                print(response)
+                await self.speak(response)
+                return response
+
             # Email commands with more flexible matching
             if any(word in cmd_lower for word in ["check", "show", "get", "read", "open"]) and any(word in cmd_lower for word in ["email", "gmail", "mail", "inbox", "message"]):
                 # Check for specific sender
@@ -621,8 +665,10 @@ class Jarvis:
                                         break
                     
                     if email_num is None:
-                        await self.speak("Which email would you like me to read? Please specify the number or say 'leave it' to cancel.")
-                        return "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
+                        response = "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
+                        print("\n" + response)
+                        await self.speak(response)
+                        return response
                     
                     emails = self.gmail_manager.get_unread_emails()
                     if isinstance(emails, list) and 1 <= email_num <= len(emails):
@@ -642,18 +688,22 @@ class Jarvis:
                         self.last_question = "Would you like to reply to this email?"
                         self.waiting_for_response = True
                         
-                        # Speak the speech response and return the display response
+                        # Display first, then speak
+                        print("\n" + display_response)
                         await self.speak(speech_response)
                         return display_response
                     
                     self.waiting_for_response = False
                     self.last_question = None
-                    await self.speak("Invalid email number. Please try again or say 'leave it' to cancel.")
-                    return "Invalid email number. Please try again or say 'leave it' to cancel."
+                    response = "Invalid email number. Please try again or say 'leave it' to cancel."
+                    print("\n" + response)
+                    await self.speak(response)
+                    return response
                 except Exception as e:
                     self.waiting_for_response = False
                     self.last_question = None
                     error_msg = f"Error processing email request: {str(e)}"
+                    print("\n" + error_msg)
                     await self.speak(error_msg)
                     return error_msg
 
@@ -1197,6 +1247,9 @@ class GmailManager:
         self.creds = None
         self.gmail_service = None
         self.calendar_service = None
+        self.cached_emails = None
+        self.last_fetch_time = None
+        self.cache_duration = 30  # Cache duration in seconds
         self.initialize_services()
 
     def initialize_services(self):
@@ -1223,9 +1276,16 @@ class GmailManager:
         self.gmail_service = build('gmail', 'v1', credentials=self.creds)
         self.calendar_service = build('calendar', 'v3', credentials=self.creds)
 
-    def get_unread_emails(self, max_results=10):
+    def get_unread_emails(self, max_results=5):
         """Get unread emails from inbox with human-readable time format"""
         try:
+            # Check cache first
+            current_time = time.time()
+            if (self.cached_emails is not None and 
+                self.last_fetch_time is not None and 
+                current_time - self.last_fetch_time < self.cache_duration):
+                return self.cached_emails
+
             results = self.gmail_service.users().messages().list(
                 userId='me',
                 labelIds=['INBOX', 'UNREAD'],
@@ -1285,8 +1345,11 @@ class GmailManager:
                     # Remove URLs and email addresses for cleaner speech
                     text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', 'link', text)
                     text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', 'email address', text)
+                    # Get a preview (first 100 characters)
+                    preview = text[:100] + "..." if len(text) > 100 else text
                 else:
                     text = "No content"
+                    preview = "No content"
 
                 emails.append({
                     'id': message['id'],
@@ -1294,9 +1357,13 @@ class GmailManager:
                     'sender': sender,
                     'date': date,
                     'snippet': msg['snippet'],
+                    'preview': preview,
                     'body': text
                 })
 
+            # Update cache
+            self.cached_emails = emails
+            self.last_fetch_time = current_time
             return emails
 
         except Exception as e:
