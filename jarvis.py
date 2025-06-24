@@ -32,6 +32,16 @@ from email.mime.text import MIMEText
 import pytz
 import re
 from datetime import datetime, timedelta
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+import pickle
+import base64
+from email.mime.text import MIMEText
+import pytz
+import re
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -45,10 +55,10 @@ class Jarvis:
     def __init__(self):
         self.recognizer = sr.Recognizer()
         # Adjust recognition parameters
-        self.recognizer.energy_threshold = 1000  # Minimum audio energy to consider for recording
+        self.recognizer.energy_threshold = 300  # Minimum audio energy to consider for recording
         self.recognizer.dynamic_energy_threshold = True  # Automatically adjust for ambient noise
         self.recognizer.dynamic_energy_adjustment_damping = 0.15
-        self.recognizer.dynamic_energy_ratio = 2.0
+        self.recognizer.dynamic_energy_ratio = 1.5
         self.recognizer.pause_threshold = 1.2  # Increased pause threshold to wait longer for complete phrases
         self.recognizer.phrase_threshold = 0.5  # Increased to ensure we catch the start of phrases
         self.recognizer.non_speaking_duration = 1.0  # Increased to better detect end of speaking
@@ -73,7 +83,7 @@ class Jarvis:
         self.audio_queue = queue.Queue()
         self.command_queue = queue.Queue()
         self.interrupt_event = threading.Event()
-        self.interrupt_threshold = 0.5  # Threshold for interruption detection
+        self.interrupt_threshold = 0.1  # Threshold for interruption detection
         self.background_listening = True
         self.last_phrase_time = time.time()
         self.command_timeout = 2.0  # Time to wait for command completion
@@ -116,6 +126,22 @@ class Jarvis:
         self.active_notepad = None  # Store the active notepad process
         self.active_note_path = None  # Store the path of the active note
         self.last_response = None  # Store the last response from GPT or other commands
+
+        # Email state tracking
+        self.email_to = None
+        self.email_subject = None
+        self.email_body = None
+
+        # List of responses to ignore to prevent feedback loops
+        self.ignore_phrases = [
+            "searching the web for",
+            "i apologize",
+            "could you please",
+            "alright, what else",
+            "i encountered an error",
+            "i'm not sure how to help",
+            "here are your unread emails"
+        ]
 
         # Initialize app commands with common paths
         self.app_commands = {
@@ -318,7 +344,7 @@ class Jarvis:
         try:
             search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
             webbrowser.open(search_url)
-            return f"Opening web search for: {query}"
+            return f"Searching the web for: {query}"
         except Exception as e:
             return f"Error searching web: {e}"
 
@@ -501,10 +527,6 @@ class Jarvis:
             cmd_lower = command.lower()
             response = None
 
-            # Skip processing if the command matches JARVIS's greeting
-            if "hello" in cmd_lower and "jarvis" in cmd_lower and "assist" in cmd_lower:
-                return None
-
             # Global exit command should be checked first
             if not self.waiting_for_response and cmd_lower in ["quit", "goodbye", "shut down", "terminate"]:
                 await self.speak("Goodbye!")
@@ -519,6 +541,52 @@ class Jarvis:
                 self.last_question = None
                 self.last_content = None
                 return "Alright, what else can I help you with?"
+
+            # Handle notepad writing commands
+            if ("write" in cmd_lower or "create" in cmd_lower) and ("notepad" in cmd_lower or "note" in cmd_lower):
+                # Check if this is a recipe request
+                if "recipe" in cmd_lower:
+                    # Extract what recipe to write
+                    recipe_item = None
+                    if "recipe" in cmd_lower:
+                        # Split by "recipe" and look for what comes after
+                        parts = cmd_lower.split("recipe", 1)
+                        if len(parts) > 1:
+                            recipe_text = parts[1].strip()
+                            # Remove common phrases
+                            recipe_text = recipe_text.replace("for", "").replace("to make", "").replace("of", "").replace("a", "").strip()
+                            if recipe_text:
+                                recipe_item = recipe_text
+                    
+                    if recipe_item:
+                        # Generate recipe using OpenAI
+                        try:
+                            response = openai_client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[
+                                    {"role": "system", "content": "You are a helpful cooking assistant. Provide recipes in a clear, step-by-step format."},
+                                    {"role": "user", "content": f"Write a simple recipe for {recipe_item}. Include ingredients list and step-by-step instructions."}
+                                ]
+                            )
+                            recipe = response.choices[0].message.content
+                            return self.write_to_notepad(recipe)
+                        except Exception as e:
+                            return f"Error generating recipe: {str(e)}"
+                    return "What recipe would you like me to write?"
+                
+                # Handle regular writing commands
+                text_to_write = None
+                if "write" in cmd_lower:
+                    # Split by "write" and take everything after it
+                    parts = cmd_lower.split("write", 1)
+                    if len(parts) > 1:
+                        text_to_write = parts[1].strip()
+                        # Remove "in notepad", "to notepad", etc.
+                        text_to_write = text_to_write.replace("in notepad", "").replace("to notepad", "").replace("in the notepad", "").replace("to the notepad", "").strip()
+                
+                if text_to_write:
+                    return self.write_to_notepad(text_to_write)
+                return "What would you like me to write in the notepad?"
 
             # Handle web search commands
             if any(phrase in cmd_lower for phrase in ["search for", "look up", "google", "find", "search"]):
@@ -542,9 +610,6 @@ class Jarvis:
                 emails = self.gmail_manager.get_unread_emails()
                 if isinstance(emails, list):
                     if not emails:
-                        self.waiting_for_response = False
-                        self.last_question = None
-                        await self.speak("You have no unread emails.")
                         return "You have no unread emails."
                     
                     # Filter by sender if specified
@@ -554,9 +619,6 @@ class Jarvis:
                             if sender_name.lower() in email['sender'].lower()
                         ]
                         if not filtered_emails:
-                            self.waiting_for_response = False
-                            self.last_question = None
-                            await self.speak(f"No unread emails found from {sender_name}.")
                             return f"No unread emails found from {sender_name}."
                         emails = filtered_emails
 
@@ -567,61 +629,65 @@ class Jarvis:
                         if i < len(emails):
                             display_response += "\n"
 
-                    # Create speech response with full details
+                    # Create speech response without numbers
                     speech_response = "Here are your unread emails. "
                     for email in emails:
                         speech_response += f"From {email['sender']}, Subject: {email['subject']}, Received {email['date']}. "
-                    speech_response += "Would you like me to read any of these emails in detail?"
                     
                     self.last_content = display_response
-                    self.last_question = "Would you like me to read any of these emails in detail?"
+                    self.last_question = "read_email"
                     self.waiting_for_response = True
                     
-                    # Speak the speech response and return the display response
-                    await self.speak(speech_response)
-                    return display_response
+                    # First return the display response, then speak and ask about reading
+                    response = display_response + "\nWhich email would you like me to read? Just say the number (1-5) or 'leave it' to cancel."
+                    asyncio.create_task(self.speak(speech_response + " Which email would you like me to read? Just say the number between 1 and 5, or say leave it to cancel."))
+                    return response
                 return emails
 
             # Handle email expansion request with more flexible matching
-            if (self.waiting_for_response and self.last_question and "read" in self.last_question.lower()) or \
+            if (self.waiting_for_response and self.last_question == "read_email") or \
                any(phrase in cmd_lower for phrase in ["expand email", "show email", "read email", "open email", "last email"]):
                 try:
                     # Extract email number from various command formats
                     email_num = None
                     
-                    # Check for "last email" command
-                    if "last" in cmd_lower or "previous" in cmd_lower:
-                        email_num = 1  # First email is the latest
+                    # First check for direct numbers in the command
+                    cmd_lower = cmd_lower.strip()
+                    if cmd_lower.isdigit():
+                        email_num = int(cmd_lower)
                     else:
-                        # Handle ordinal numbers
-                        ordinal_map = {
-                            "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-                            "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
-                            "last": 1, "latest": 1
-                        }
-                        
-                        # Check for ordinal words
-                        for ordinal, num in ordinal_map.items():
-                            if ordinal in cmd_lower:
-                                email_num = num
-                                break
-                        
-                        # If no ordinal found, try other patterns
-                        if email_num is None:
-                            words = cmd_lower.split()
-                            for i, word in enumerate(words):
-                                # Check for direct numbers
-                                if word.isdigit():
-                                    email_num = int(word)
+                        # Check for "last email" command
+                        if "last" in cmd_lower or "previous" in cmd_lower:
+                            email_num = 1  # First email is the latest
+                        else:
+                            # Handle ordinal numbers
+                            ordinal_map = {
+                                "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+                                "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+                                "last": 1, "latest": 1
+                            }
+                            
+                            # Check for ordinal words
+                            for ordinal, num in ordinal_map.items():
+                                if ordinal in cmd_lower:
+                                    email_num = num
                                     break
-                                # Check for number after keywords
-                                elif i < len(words) - 1 and word in ["number", "email", "message", "#", "no", "no.", "num", "num."]:
-                                    if words[i + 1].isdigit():
-                                        email_num = int(words[i + 1])
+                            
+                            # If no ordinal found, try other patterns
+                            if email_num is None:
+                                words = cmd_lower.split()
+                                for i, word in enumerate(words):
+                                    # Check for direct numbers
+                                    if word.isdigit():
+                                        email_num = int(word)
                                         break
+                                    # Check for number after keywords
+                                    elif i < len(words) - 1 and word in ["number", "email", "message", "#", "no", "no.", "num", "num."]:
+                                        if words[i + 1].isdigit():
+                                            email_num = int(words[i + 1])
+                                            break
                     
                     if email_num is None:
-                        await self.speak("Which email would you like me to read? Please specify the number or say 'leave it' to cancel.")
                         return "Which email would you like me to read? Please specify the number or say 'leave it' to cancel."
                     
                     emails = self.gmail_manager.get_unread_emails()
@@ -635,27 +701,20 @@ class Jarvis:
                         display_response += f"Content:\n{email['body']}\n\n"
                         display_response += "Would you like to reply to this email?"
 
-                        # Create speech response with full details
-                        speech_response = f"Here's the email from {email['sender']} about {email['subject']}. {email['body']}. Would you like to reply to this email?"
+                        # Create speech response without the email number and content
+                        speech_response = f"Here's the email from {email['sender']} about {email['subject']}. Would you like to reply to this email?"
                         
                         self.last_content = display_response
                         self.last_question = "Would you like to reply to this email?"
                         self.waiting_for_response = True
                         
-                        # Speak the speech response and return the display response
-                        await self.speak(speech_response)
-                        return display_response
-                    
-                    self.waiting_for_response = False
-                    self.last_question = None
-                    await self.speak("Invalid email number. Please try again or say 'leave it' to cancel.")
+                        # First return the display response, then speak
+                        response = display_response
+                        asyncio.create_task(self.speak(speech_response))
+                        return response
                     return "Invalid email number. Please try again or say 'leave it' to cancel."
                 except Exception as e:
-                    self.waiting_for_response = False
-                    self.last_question = None
-                    error_msg = f"Error processing email request: {str(e)}"
-                    await self.speak(error_msg)
-                    return error_msg
+                    return f"Error processing email request: {str(e)}"
 
             # Handle email reply with more flexible matching
             if self.waiting_for_response and self.last_question and "reply" in self.last_question.lower():
@@ -692,56 +751,75 @@ class Jarvis:
                     self.last_content = None
                     return "Okay, I won't send the reply. Is there anything else you'd like me to do?"
 
-            # Calendar commands with more flexible matching
-            if any(word in cmd_lower for word in ["calendar", "event", "schedule", "meeting"]):
-                # Check/Show/List events
-                if any(word in cmd_lower for word in ["check", "show", "list", "what", "any", "get", "see", "tell"]):
+            # Send new email command
+            if any(phrase in cmd_lower for phrase in ["send email", "compose email", "write email", "new email"]):
+                if self.waiting_for_response and self.last_question == "send_email_to":
+                    # Got recipient
+                    self.email_to = cmd_lower
+                    self.last_question = "send_email_subject"
+                    return "What should be the subject of the email?"
+                elif self.waiting_for_response and self.last_question == "send_email_subject":
+                    # Got subject
+                    self.email_subject = cmd_lower
+                    self.last_question = "send_email_body"
+                    return "What would you like to say in the email?"
+                elif self.waiting_for_response and self.last_question == "send_email_body":
+                    # Got body, confirm before sending
+                    self.email_body = cmd_lower
+                    self.last_content = f"I'll send the following email:\n\nTo: {self.email_to}\nSubject: {self.email_subject}\nBody: {self.email_body}\n\nShould I send this email?"
+                    self.last_question = "confirm_send_email"
+                    return self.last_content
+                elif self.waiting_for_response and self.last_question == "confirm_send_email":
+                    if any(word in cmd_lower for word in ["yes", "yeah", "sure", "okay", "yep", "send", "go ahead"]):
+                        result = self.gmail_manager.send_email(self.email_to, self.email_subject, self.email_body)
+                        self.waiting_for_response = False
+                        self.last_question = None
+                        self.last_content = None
+                        self.email_to = None
+                        self.email_subject = None
+                        self.email_body = None
+                        return result
+                    elif any(word in cmd_lower for word in ["no", "nope", "nah", "modify", "change", "edit"]):
+                        self.last_question = "send_email_to"
+                        return "Let's start over. Who would you like to send the email to?"
+                    else:
+                        self.waiting_for_response = False
+                        self.last_question = None
+                        self.last_content = None
+                        self.email_to = None
+                        self.email_subject = None
+                        self.email_body = None
+                        return "Okay, I won't send the email. Is there anything else you'd like me to do?"
+                else:
+                    # Start new email process
+                    self.waiting_for_response = True
+                    self.last_question = "send_email_to"
+                    return "Who would you like to send the email to?"
+
+            # Calendar commands
+            if "calendar" in cmd_lower:
+                if "check" in cmd_lower or "show" in cmd_lower or "list" in cmd_lower:
                     events = self.gmail_manager.get_calendar_events()
                     if isinstance(events, list):
                         if not events:
-                            self.waiting_for_response = False
-                            self.last_question = None
-                            await self.speak("You have no upcoming events.")
                             return "You have no upcoming events."
                         
-                        # Store full response for display
-                        display_response = "Here are your upcoming events:\n\n"
+                        response = "Here are your upcoming events:\n\n"
                         for i, event in enumerate(events, 1):
-                            display_response += f"{i}. {event['summary']}\n"
-                            display_response += f"   When: {event['start']} {event['end']}\n"
+                            response += f"{i}. {event['summary']}\n"
+                            response += f"   When: {event['start']} to {event['end']}\n"
                             if event['location']:
-                                display_response += f"   Where: {event['location']}\n"
+                                response += f"   Where: {event['location']}\n"
                             if event['attendees']:
-                                display_response += f"   Attendees: {', '.join(event['attendees'])}\n"
+                                response += f"   Attendees: {', '.join(event['attendees'])}\n"
                             if i < len(events):
-                                display_response += "\n"
-
-                        # Create speech response with full details
-                        speech_response = "Here are your upcoming events. "
-                        for event in events:
-                            speech_response += f"{event['summary']} {event['start']} {event['end']}. "
-                            if event['location']:
-                                speech_response += f"Location: {event['location']}. "
-                        speech_response += "Would you like details about any specific event?"
-                        
-                        self.last_content = display_response
-                        self.last_question = "Would you like me to give you more details about any event?"
-                        self.waiting_for_response = True
-                        
-                        # Speak the speech response and return the display response
-                        await self.speak(speech_response)
-                        return display_response
+                                response += "\n"
+                        return response
                     return events
 
-                # Respond to calendar invites
-                elif any(word in cmd_lower for word in ["respond", "accept", "decline", "yes", "no"]):
+                elif "respond" in cmd_lower or "accept" in cmd_lower or "decline" in cmd_lower:
                     # Extract event number and response type
-                    response_type = None
-                    if any(word in cmd_lower for word in ["accept", "yes", "confirm", "attending", "going"]):
-                        response_type = "accepted"
-                    elif any(word in cmd_lower for word in ["decline", "no", "reject", "can't", "cannot", "not going"]):
-                        response_type = "declined"
-                    
+                    response_type = "accepted" if "accept" in cmd_lower else "declined" if "decline" in cmd_lower else None
                     if not response_type:
                         return "Would you like to accept or decline the event?"
 
@@ -749,10 +827,7 @@ class Jarvis:
                     if isinstance(events, list) and events:
                         result = self.gmail_manager.respond_to_calendar_invite(events[0]['id'], response_type)
                         return result
-                    return "Sorry, I couldn't find any calendar invites to respond to."
-
-                # If no specific calendar action is mentioned
-                return "Would you like me to check your calendar or respond to an invite?"
+                    return "Sorry, I couldn't find the calendar invite to respond to."
 
             # Handle other commands
             if "weather" in cmd_lower:
@@ -922,6 +997,9 @@ class Jarvis:
                 self.audio_queue.put(text)
                 return
 
+            # Set speaking flag at the start
+            self.is_speaking = True
+            
             # Clear any previous interrupt event
             self.interrupt_event.clear()
 
@@ -963,10 +1041,15 @@ class Jarvis:
                         with self.audio_queue.mutex:
                             self.audio_queue.queue.clear()
                         break
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.01)  # Reduced sleep time
                 
                 # Wait for thread to fully clean up
-                self.speech_thread.join(timeout=1.0)
+                self.speech_thread.join(timeout=0.5)  # Reduced timeout
+                
+                # Add a small delay after speaking to prevent self-listening
+                self.is_speaking = True  # Keep speaking flag on briefly
+                await asyncio.sleep(0.2)  # Small delay after speech
+                self.is_speaking = False
                 
                 # Only process queue if not interrupted
                 if not self.interrupt_event.is_set():
@@ -1011,6 +1094,8 @@ class Jarvis:
         except Exception as e:
             print(f"Error in text-to-speech: {e}")
             print(f"Response: {text}")
+        finally:
+            # Always ensure speaking flag is cleared
             self.is_speaking = False
             self.interrupt_event.clear()
 
@@ -1033,15 +1118,10 @@ class Jarvis:
             # Initial calibration
             print("Calibrating microphone for background listening...")
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            print("\nListening...")  # Print only once at start
             
             while self.background_listening:
                 try:
-                    print("\nListening...")
-                    # Skip processing if JARVIS is currently speaking
-                    if self.is_speaking:
-                        time.sleep(0.1)  # Short sleep to prevent CPU overuse
-                        continue
-                        
                     # Listen for audio with longer timeout and phrase limit
                     audio = self.recognizer.listen(
                         source,
@@ -1050,19 +1130,19 @@ class Jarvis:
                     )
                     
                     try:
-                        # Skip processing if JARVIS started speaking while we were listening
-                        if self.is_speaking:
-                            continue
-                            
                         # Process audio in background
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
                         
-                        # Skip if the text matches JARVIS's last response
-                        if self.last_response and (
-                            text.lower() in self.last_response.lower() or 
-                            self.last_response.lower() in text.lower()
-                        ):
+                        # Ignore any input while JARVIS is speaking
+                        if self.is_speaking:
+                            print("Ignoring input while speaking...")
+                            continue
+                            
+                        # Ignore JARVIS's own responses
+                        text_lower = text.lower()
+                        if any(phrase in text_lower for phrase in self.ignore_phrases):
+                            print("Ignoring JARVIS response:", text)
                             continue
                             
                         # Special handling for "stop" command
@@ -1070,10 +1150,15 @@ class Jarvis:
                             print("Stop command detected!")
                             if self.is_speaking:
                                 self.interrupt_event.set()
+                                self.command_queue.put(text)
+                            continue
+                        
+                        # If speaking, treat as interruption
+                        if self.is_speaking:
+                            print("Interruption detected through speech!")
+                            self.interrupt_event.set()
                             continue
                             
-                        print("Recognized:", text)
-                        
                         # Check if this is part of an ongoing command
                         if current_time - self.last_phrase_time < self.command_timeout:
                             # Get the previous incomplete command if it exists
@@ -1083,6 +1168,7 @@ class Jarvis:
                             except queue.Empty:
                                 pass
                         
+                        print("Recognized:", text)
                         self.last_phrase_time = current_time
                         
                         # Wait briefly to see if there's more to the command
@@ -1090,11 +1176,6 @@ class Jarvis:
                         wait_start = time.time()
                         while await_more and time.time() - wait_start < self.command_timeout:
                             try:
-                                # Skip if JARVIS is speaking
-                                if self.is_speaking:
-                                    await_more = False
-                                    continue
-                                    
                                 # Try to detect more speech
                                 more_audio = self.recognizer.listen(
                                     source,
@@ -1102,15 +1183,6 @@ class Jarvis:
                                     phrase_time_limit=5
                                 )
                                 more_text = self.recognizer.recognize_google(more_audio, language="en-US")
-                                
-                                # Skip if this part matches JARVIS's last response
-                                if self.last_response and (
-                                    more_text.lower() in self.last_response.lower() or 
-                                    self.last_response.lower() in more_text.lower()
-                                ):
-                                    await_more = False
-                                    continue
-                                    
                                 text = f"{text} {more_text}"
                                 print("Additional input:", more_text)
                                 wait_start = time.time()  # Reset wait time for more potential speech
@@ -1119,15 +1191,27 @@ class Jarvis:
                             except Exception:
                                 await_more = False
                         
-                        # Only process commands that seem complete
-                        if len(text.split()) >= 2:  # Command has at least 2 words
+                        # Process single-word commands like numbers
+                        text = text.lower().strip()
+                        # Convert word numbers to digits
+                        number_map = {
+                            'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+                            'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10'
+                        }
+                        if text in number_map:
+                            text = number_map[text]
+                        
+                        # Handle single-word commands
+                        if text.isdigit() or text in ['first', 'second', 'third', 'fourth', 'fifth']:
+                            print("Final command:", text)
+                            self.command_queue.put(text)
+                        # Handle other commands that need at least 2 words
+                        elif len(text.split()) >= 2 or self.waiting_for_response:  # Allow single words during response waiting
                             print("Final command:", text)
                             self.command_queue.put(text)
                         else:
                             print("Command too short, waiting for more input...")
-                            # Store short command temporarily without processing it
-                            self.last_phrase_time = current_time  # Update time to allow for continuation
-                            # Don't put in command queue yet
+                            self.command_queue.put(text)  # Store it for potential continuation
                             
                     except sr.UnknownValueError:
                         # Ignore unrecognized audio
@@ -1148,10 +1232,7 @@ class Jarvis:
         # Start background listening
         self.start_background_listening()
         
-        # Set initial greeting as last response to prevent self-listening
-        initial_greeting = "Hello, I am JARVIS. How may I assist you?"
-        self.last_response = initial_greeting
-        await self.speak(initial_greeting)
+        await self.speak("Hello, I am JARVIS. How may I assist you?")
         
         while True:
             try:
@@ -1170,20 +1251,21 @@ class Jarvis:
                 response = await self.process_command(command)
                 print(f"Response: {response}")
                 
-                # Only speak if we have a valid response and weren't interrupted
-                if response and not self.interrupt_event.is_set():
-                    # Store current response before speaking
-                    self.last_content = response
+                # Always speak the response, even if it's an error message
+                # Only skip speaking if we were interrupted
+                if not self.interrupt_event.is_set():
+                    # For empty or None responses, provide a default message
+                    if not response or response.strip() == "":
+                        response = "I apologize, but I couldn't process that command properly. Could you please try again?"
                     await self.speak(response)
-                    # Update last response only if it was spoken successfully
-                    if not self.interrupt_event.is_set():
-                        self.last_response = response
+                    print("\nListening...")  # Print after processing command
                     
             except Exception as e:
                 error_message = f"I encountered an error: {str(e)}"
                 print(error_message)
                 if not self.interrupt_event.is_set():
                     await self.speak(error_message)
+                print("\nListening...")  # Print after error
                 continue
         
         # Clean up
@@ -1223,8 +1305,8 @@ class GmailManager:
         self.gmail_service = build('gmail', 'v1', credentials=self.creds)
         self.calendar_service = build('calendar', 'v3', credentials=self.creds)
 
-    def get_unread_emails(self, max_results=10):
-        """Get unread emails from inbox with human-readable time format"""
+    def get_unread_emails(self, max_results=5):
+        """Get unread emails from inbox with human-readable time format (default: 5 emails)"""
         try:
             results = self.gmail_service.users().messages().list(
                 userId='me',
@@ -1393,7 +1475,7 @@ class GmailManager:
                         start_str = f"Tomorrow at {start_local.strftime('%I:%M %p')}"
                         end_str = f"until {end_local.strftime('%I:%M %p')}"
                     else:
-                        start_str = start_local.strftime('%A, %B %d at %I:%M %p')
+                        start_str = start_local.strftime('%B %d at %I:%M %p')
                         end_str = f"until {end_local.strftime('%I:%M %p')}"
                 else:
                     # All-day event
@@ -1403,23 +1485,18 @@ class GmailManager:
                     elif start_dt.date() == (datetime.now() + timedelta(days=1)).date():
                         start_str = "Tomorrow"
                     else:
-                        start_str = start_dt.strftime('%A, %B %d')
+                        start_str = start_dt.strftime('%B %d')
                     end_str = "(all day)"
-
-                # Clean up attendees list for speech
-                attendees = []
-                for attendee in event.get('attendees', []):
-                    email = attendee.get('email', '')
-                    name = email.split('@')[0] if '@' in email else email
-                    attendees.append(name)
 
                 formatted_events.append({
                     'summary': event['summary'],
                     'start': start_str,
                     'end': end_str,
-                    'description': event.get('description', ''),
                     'location': event.get('location', ''),
-                    'attendees': attendees
+                    'attendees': [
+                        attendee.get('email', '').split('@')[0]
+                        for attendee in event.get('attendees', [])
+                    ] if event.get('attendees') else []
                 })
 
             return formatted_events
@@ -1431,18 +1508,20 @@ class GmailManager:
         try:
             event = {
                 'summary': summary,
-                'location': location,
-                'description': description,
                 'start': {
-                    'dateTime': start_time.isoformat(),
-                    'timeZone': 'America/New_York',  # Adjust to your timezone
+                    'dateTime': start_time,
+                    'timeZone': 'America/New_York',
                 },
                 'end': {
-                    'dateTime': end_time.isoformat(),
-                    'timeZone': 'America/New_York',  # Adjust to your timezone
+                    'dateTime': end_time,
+                    'timeZone': 'America/New_York',
                 }
             }
 
+            if description:
+                event['description'] = description
+            if location:
+                event['location'] = location
             if attendees:
                 event['attendees'] = [{'email': email} for email in attendees]
 
@@ -1452,31 +1531,34 @@ class GmailManager:
                 sendUpdates='all'
             ).execute()
 
-            return f"Event created successfully! Link: {event.get('htmlLink')}"
+            return f"Event created successfully: {event.get('htmlLink')}"
         except Exception as e:
-            return f"Error creating event: {str(e)}"
+            return f"Error creating calendar event: {str(e)}"
 
     def respond_to_calendar_invite(self, event_id, response='accepted'):
         """Respond to a calendar invite"""
         try:
-            responses = {
-                'accepted': 'accepted',
-                'declined': 'declined',
-                'tentative': 'tentative'
-            }
-            
-            if response.lower() not in responses:
-                return "Invalid response. Please use 'accepted', 'declined', or 'tentative'."
-
-            self.calendar_service.events().patch(
+            # Get the event
+            event = self.calendar_service.events().get(
                 calendarId='primary',
-                eventId=event_id,
-                body={
-                    'status': responses[response.lower()]
-                }
+                eventId=event_id
             ).execute()
 
-            return f"Calendar invite {response} successfully!"
+            # Find the attendee that matches the authenticated user
+            for attendee in event.get('attendees', []):
+                if attendee.get('self'):
+                    attendee['responseStatus'] = response
+                    break
+
+            # Update the event
+            updated_event = self.calendar_service.events().patch(
+                calendarId='primary',
+                eventId=event_id,
+                body=event,
+                sendUpdates='all'
+            ).execute()
+
+            return f"Successfully {response} the calendar invite."
         except Exception as e:
             return f"Error responding to calendar invite: {str(e)}"
 
