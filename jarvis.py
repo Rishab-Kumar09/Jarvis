@@ -65,18 +65,23 @@ class Jarvis:
         sd.default.samplerate = 24000
         sd.default.channels = 1
         
-        # For handling interruptions and continuous listening
-        self.is_speaking = False
-        self.is_listening = False
-        self.speech_thread = None
-        self.listen_thread = None
-        self.audio_queue = queue.Queue()
-        self.command_queue = queue.Queue()
+        # Initialize interruption parameters
+        self.interrupt_threshold = 0.1  # Lowered from 0.5 to be more sensitive
         self.interrupt_event = threading.Event()
-        self.interrupt_threshold = 0.5  # Threshold for interruption detection
-        self.background_listening = True
-        self.last_phrase_time = time.time()
-        self.command_timeout = 2.0  # Time to wait for command completion
+        self.is_speaking = False
+        self.speech_thread = None
+        
+        # Initialize command handling
+        self.command_queue = queue.Queue()
+        self.audio_queue = queue.Queue()
+        self.last_response = None
+        self.last_content = None
+        self.last_question = None
+        self.waiting_for_response = False
+        self.last_phrase_time = 0
+        self.command_timeout = 2.0  # Seconds to wait for additional speech
+        self.background_listening = False
+        self.listen_thread = None
         
         # Add note tracking
         self.note_counter = 1
@@ -514,16 +519,29 @@ class Jarvis:
             if any(phrase in cmd_lower for phrase in [
                 "exit", "cancel", "go back", "never mind", "stop this", "leave it", 
                 "forget it", "skip it", "leave this", "get out", "done with this",
-                "exit email", "leave email", "stop reading", "stop emails"
+                "exit email", "leave email", "stop reading", "stop emails", "shut up",
+                "be quiet", "enough", "that's enough", "stop"
             ]):
+                # If speaking, stop immediately
+                if self.is_speaking:
+                    self.interrupt_event.set()
+                    self.is_speaking = False
+                
+                # Clear all states
                 self.waiting_for_response = False
                 self.last_question = None
                 self.last_content = None
-                response = "Alright, what else can I help you with?"
-                print("\n" + response)
-                await self.speak(response)
-                # Store this as the last response to prevent re-processing
+                with self.audio_queue.mutex:
+                    self.audio_queue.queue.clear()
+                
+                # Store command to prevent re-processing
                 self.last_response = cmd_lower
+                
+                # Only speak response if not interrupted
+                if not self.interrupt_event.is_set():
+                    response = "Alright, what else can I help you with?"
+                    print("\n" + response)
+                    await self.speak(response)
                 return response
 
             # Skip if this command matches or is part of our last response
@@ -532,7 +550,7 @@ class Jarvis:
                 self.last_response.lower() in cmd_lower or
                 any(phrase in self.last_response.lower() for phrase in [
                     "leave it", "exit", "cancel", "go back", "never mind",
-                    "exit email", "leave email", "stop reading"
+                    "exit email", "leave email", "stop reading", "stop", "enough"
                 ])
             ):
                 return None
@@ -917,16 +935,17 @@ class Jarvis:
                 if volume_norm > self.interrupt_threshold:
                     print(f"Interruption detected! (Level: {volume_norm:.2f})")
                     self.interrupt_event.set()
+                    self.is_speaking = False  # Stop speaking immediately
                     return
 
             # Start monitoring audio input
             with sd.InputStream(callback=audio_callback,
                               channels=1,
                               samplerate=24000,
-                              blocksize=1024,
+                              blocksize=512,  # Smaller blocks for faster response
                               dtype=np.float32) as stream:
                 while self.is_speaking and not self.interrupt_event.is_set():
-                    sd.sleep(10)  # Shorter sleep interval for faster response
+                    sd.sleep(5)  # Even shorter sleep for faster response
 
         except Exception as e:
             print(f"Error in interruption detection: {e}")
@@ -1090,12 +1109,7 @@ class Jarvis:
             
             while self.background_listening:
                 try:
-                    # Skip processing if JARVIS is currently speaking
-                    if self.is_speaking:
-                        time.sleep(0.1)  # Short sleep to prevent CPU overuse
-                        continue
-                        
-                    # Listen for audio with longer timeout and phrase limit
+                    # Even if speaking, try to detect interruptions
                     audio = self.recognizer.listen(
                         source,
                         timeout=2,
@@ -1103,14 +1117,26 @@ class Jarvis:
                     )
                     
                     try:
-                        # Skip processing if JARVIS started speaking while we were listening
-                        if self.is_speaking:
-                            continue
-                            
-                        # Process audio in background
+                        # Process audio even if speaking (for interruptions)
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
                         
+                        # If speaking and command is an interruption command, stop speaking
+                        if self.is_speaking and any(phrase in text.lower() for phrase in [
+                            "stop", "leave it", "exit", "cancel", "never mind", "shut up",
+                            "be quiet", "enough", "that's enough"
+                        ]):
+                            print("Interruption command detected!")
+                            self.interrupt_event.set()
+                            self.is_speaking = False
+                            self.waiting_for_response = False
+                            self.last_question = None
+                            continue
+                        
+                        # Skip if speaking and not an interruption command
+                        if self.is_speaking:
+                            continue
+                            
                         # Skip if the text matches JARVIS's last response or contains exit commands
                         if (self.last_response and (
                             text.lower() in self.last_response.lower() or 
@@ -1119,13 +1145,6 @@ class Jarvis:
                             "leave it", "exit", "cancel", "go back", "never mind",
                             "exit email", "leave email", "stop reading"
                         ]):
-                            continue
-                            
-                        # Special handling for "stop" command
-                        if text.lower().strip() == "stop":
-                            print("Stop command detected!")
-                            if self.is_speaking:
-                                self.interrupt_event.set()
                             continue
                             
                         print("Recognized:", text)
