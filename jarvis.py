@@ -66,9 +66,9 @@ class Jarvis:
         # Add wake word and sleep word settings
         self.wake_words = ["jarvis", "hey jarvis", "okay jarvis", "hi jarvis"]
         self.sleep_words = ["bye jarvis", "goodbye jarvis", "see you later jarvis", "talk to you later jarvis"]
-        self.is_awake = False
+        self.is_awake = True  # Start awake
         self.awake_timeout = 30  # Seconds to stay awake after wake word
-        self.last_wake_time = 0
+        self.last_wake_time = time.time()  # Initialize with current time
 
         self.voice_profile = {
             "instructions": """Voice Profile:
@@ -1298,7 +1298,9 @@ class Jarvis:
         # Start background listening
         self.start_background_listening()
         
+        # Initial greeting without requiring wake word
         await self.speak("Jarvis in service!")
+        print("\nListening...")
         
         while True:
             try:
