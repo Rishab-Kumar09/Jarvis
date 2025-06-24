@@ -63,6 +63,13 @@ class Jarvis:
         self.recognizer.phrase_threshold = 0.5  # Increased to ensure we catch the start of phrases
         self.recognizer.non_speaking_duration = 1.0  # Increased to better detect end of speaking
 
+        # Add wake word and sleep word settings
+        self.wake_words = ["jarvis", "hey jarvis", "okay jarvis", "hi jarvis"]
+        self.sleep_words = ["bye jarvis", "goodbye jarvis", "see you later jarvis", "talk to you later jarvis"]
+        self.is_awake = False
+        self.awake_timeout = 30  # Seconds to stay awake after wake word
+        self.last_wake_time = 0
+
         self.voice_profile = {
             "instructions": """Voice Profile:
             Accent & Tone: Sophisticated British male accent, precise and authoritative, with the characteristic JARVIS-like formality.
@@ -1156,7 +1163,14 @@ class Jarvis:
     def start_background_listening(self):
         """Start continuous background listening"""
         self.background_listening = True
-        self.listen_thread = threading.Thread(target=self._background_listener)
+        # Create an event loop for the background thread
+        async def run_listener():
+            await self._background_listener()
+            
+        def run_async_listener():
+            asyncio.run(run_listener())
+            
+        self.listen_thread = threading.Thread(target=run_async_listener)
         self.listen_thread.daemon = True
         self.listen_thread.start()
 
@@ -1166,25 +1180,42 @@ class Jarvis:
         if self.listen_thread:
             self.listen_thread.join()
 
-    def _background_listener(self):
+    async def _background_listener(self):
         """Continuous background listening function"""
         with sr.Microphone() as source:
             # Initial calibration
             print("Calibrating microphone for background listening...")
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            print("\nListening...")  # Print only once at start
+            print("\nWaiting for wake word...")
             
             while self.background_listening:
                 try:
-                    # Listen for audio with longer timeout and phrase limit
+                    # Reduce timeout and phrase limit when sleeping
+                    timeout = 1 if not self.is_awake else 2
+                    phrase_limit = 5 if not self.is_awake else 15
+                    
+                    # Listen for audio with optimized parameters
                     audio = self.recognizer.listen(
                         source,
-                        timeout=2,
-                        phrase_time_limit=15,
+                        timeout=timeout,
+                        phrase_time_limit=phrase_limit,
                     )
                     
                     try:
-                        # Process audio in background
+                        # Use faster recognition when sleeping (only looking for wake words)
+                        if not self.is_awake:
+                            text = self.recognizer.recognize_google(audio, language="en-US")
+                            text_lower = text.lower()
+                            
+                            # Quick check for wake word
+                            if any(wake_word in text_lower for wake_word in self.wake_words):
+                                print("Wake word detected!")
+                                self.is_awake = True
+                                self.last_wake_time = time.time()
+                                await self.speak("Yes, how can I help you?")
+                            continue
+                        
+                        # Full recognition when awake
                         text = self.recognizer.recognize_google(audio, language="en-US")
                         current_time = time.time()
                         
@@ -1197,6 +1228,23 @@ class Jarvis:
                         text_lower = text.lower()
                         if any(phrase in text_lower for phrase in self.ignore_phrases):
                             print("Ignoring JARVIS response:", text)
+                            continue
+
+                        # Quick check for sleep command
+                        if any(sleep_word in text_lower for sleep_word in self.sleep_words):
+                            print("Sleep command detected!")
+                            self.is_awake = False
+                            await self.speak("Goodbye! Let me know when you need me again.")
+                            print("\nWaiting for wake word...")
+                            continue
+
+                        # Check if we should go back to sleep due to timeout
+                        if current_time - self.last_wake_time > self.awake_timeout:
+                            if self.is_awake:
+                                print("Sleep timeout reached...")
+                                self.is_awake = False
+                                await self.speak("No activity detected. Going to sleep mode. Wake me when you need me.")
+                                print("\nWaiting for wake word...")
                             continue
                             
                         # Special handling for "stop" command
@@ -1213,6 +1261,9 @@ class Jarvis:
                             self.interrupt_event.set()
                             continue
                             
+                        # Update wake time for any valid command
+                        self.last_wake_time = current_time
+
                         # Check if this is part of an ongoing command
                         if current_time - self.last_phrase_time < self.command_timeout:
                             # Get the previous incomplete command if it exists
@@ -1225,47 +1276,8 @@ class Jarvis:
                         print("Recognized:", text)
                         self.last_phrase_time = current_time
                         
-                        # Wait briefly to see if there's more to the command
-                        await_more = True
-                        wait_start = time.time()
-                        while await_more and time.time() - wait_start < self.command_timeout:
-                            try:
-                                # Try to detect more speech
-                                more_audio = self.recognizer.listen(
-                                    source,
-                                    timeout=1,
-                                    phrase_time_limit=5
-                                )
-                                more_text = self.recognizer.recognize_google(more_audio, language="en-US")
-                                text = f"{text} {more_text}"
-                                print("Additional input:", more_text)
-                                wait_start = time.time()  # Reset wait time for more potential speech
-                            except (sr.WaitTimeoutError, sr.UnknownValueError):
-                                await_more = False
-                            except Exception:
-                                await_more = False
-                        
-                        # Process single-word commands like numbers
-                        text = text.lower().strip()
-                        # Convert word numbers to digits
-                        number_map = {
-                            'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
-                            'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10'
-                        }
-                        if text in number_map:
-                            text = number_map[text]
-                        
-                        # Handle single-word commands
-                        if text.isdigit() or text in ['first', 'second', 'third', 'fourth', 'fifth']:
-                            print("Final command:", text)
-                            self.command_queue.put(text)
-                        # Handle other commands that need at least 2 words
-                        elif len(text.split()) >= 2 or self.waiting_for_response:  # Allow single words during response waiting
-                            print("Final command:", text)
-                            self.command_queue.put(text)
-                        else:
-                            print("Command too short, waiting for more input...")
-                            self.command_queue.put(text)  # Store it for potential continuation
+                        # Put the command in the queue
+                        self.command_queue.put(text)
                             
                     except sr.UnknownValueError:
                         # Ignore unrecognized audio
@@ -1286,7 +1298,7 @@ class Jarvis:
         # Start background listening
         self.start_background_listening()
         
-        await self.speak("Hello, I am JARVIS. How may I assist you?")
+        await self.speak("Jarvis in service!")
         
         while True:
             try:
