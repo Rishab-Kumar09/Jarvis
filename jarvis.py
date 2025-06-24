@@ -533,11 +533,22 @@ class Jarvis:
                     return self.search_web(search_query)
                 return "What would you like me to search for?"
 
-            # Specific check for "check emails" command
-            if cmd_lower.strip() in ["check emails", "check email", "check my emails", "check my email"]:
+            # Handle all email checking commands
+            if (cmd_lower.strip() in ["check emails", "check email", "check my emails", "check my email"] or
+                (any(word in cmd_lower for word in ["check", "show", "get", "read", "open"]) and 
+                 any(word in cmd_lower for word in ["email", "gmail", "mail", "inbox", "message"]))
+            ):
                 # Show loading message first
                 print("\nChecking your emails...")
                 
+                # Check for specific sender
+                sender_name = None
+                if "from" in cmd_lower:
+                    # Extract name after "from"
+                    words = cmd_lower.split("from")
+                    if len(words) > 1:
+                        sender_name = words[1].strip()
+
                 emails = self.gmail_manager.get_unread_emails()
                 if isinstance(emails, list):
                     if not emails:
@@ -546,6 +557,19 @@ class Jarvis:
                         await self.speak(response)
                         return response
                     
+                    # Filter by sender if specified
+                    if sender_name:
+                        filtered_emails = [
+                            email for email in emails 
+                            if sender_name.lower() in email['sender'].lower()
+                        ]
+                        if not filtered_emails:
+                            response = f"No unread emails found from {sender_name}."
+                            print(response)
+                            await self.speak(response)
+                            return response
+                        emails = filtered_emails
+
                     # Store full response for display with previews
                     display_response = f"You have {len(emails)} unread emails:\n\n"
                     for i, email in enumerate(emails, 1):
@@ -576,59 +600,6 @@ class Jarvis:
                 print(response)
                 await self.speak(response)
                 return response
-
-            # Email commands with more flexible matching
-            if any(word in cmd_lower for word in ["check", "show", "get", "read", "open"]) and any(word in cmd_lower for word in ["email", "gmail", "mail", "inbox", "message"]):
-                # Check for specific sender
-                sender_name = None
-                if "from" in cmd_lower:
-                    # Extract name after "from"
-                    words = cmd_lower.split("from")
-                    if len(words) > 1:
-                        sender_name = words[1].strip()
-
-                emails = self.gmail_manager.get_unread_emails()
-                if isinstance(emails, list):
-                    if not emails:
-                        self.waiting_for_response = False
-                        self.last_question = None
-                        await self.speak("You have no unread emails.")
-                        return "You have no unread emails."
-                    
-                    # Filter by sender if specified
-                    if sender_name:
-                        filtered_emails = [
-                            email for email in emails 
-                            if sender_name.lower() in email['sender'].lower()
-                        ]
-                        if not filtered_emails:
-                            self.waiting_for_response = False
-                            self.last_question = None
-                            await self.speak(f"No unread emails found from {sender_name}.")
-                            return f"No unread emails found from {sender_name}."
-                        emails = filtered_emails
-
-                    # Store full response for display
-                    display_response = "Here are your unread emails:\n\n"
-                    for i, email in enumerate(emails, 1):
-                        display_response += f"{i}. From: {email['sender']}\nSubject: {email['subject']}\nDate: {email['date']}\n"
-                        if i < len(emails):
-                            display_response += "\n"
-
-                    # Create speech response with full details
-                    speech_response = "Here are your unread emails. "
-                    for email in emails:
-                        speech_response += f"From {email['sender']}, Subject: {email['subject']}, Received {email['date']}. "
-                    speech_response += "Would you like me to read any of these emails in detail?"
-                    
-                    self.last_content = display_response
-                    self.last_question = "Would you like me to read any of these emails in detail?"
-                    self.waiting_for_response = True
-                    
-                    # Speak the speech response and return the display response
-                    await self.speak(speech_response)
-                    return display_response
-                return emails
 
             # Handle email expansion request with more flexible matching
             if (self.waiting_for_response and self.last_question and "read" in self.last_question.lower()) or \
