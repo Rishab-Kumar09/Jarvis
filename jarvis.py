@@ -850,8 +850,6 @@ class Jarvis:
     def listen(self):
         """Listen for voice input using microphone with enhanced recognition"""
         with sr.Microphone() as source:
-            print("\nListening...")
-            
             # Initial adjustment for ambient noise
             self.adjust_for_ambient_noise(source)
             
@@ -1083,10 +1081,10 @@ class Jarvis:
             # Initial calibration
             print("Calibrating microphone for background listening...")
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            print("\nListening...")  # Show listening message only once at startup
             
             while self.background_listening:
                 try:
-                    print("\nListening...")
                     # Skip processing if JARVIS is currently speaking
                     if self.is_speaking:
                         time.sleep(0.1)  # Short sleep to prevent CPU overuse
