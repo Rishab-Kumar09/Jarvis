@@ -32,16 +32,9 @@ from email.mime.text import MIMEText
 import pytz
 import re
 from datetime import datetime, timedelta
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-import pickle
-import base64
-from email.mime.text import MIMEText
-import pytz
-import re
-from datetime import datetime, timedelta
+from flask import Flask, render_template, request, jsonify
+from flask_socketio import SocketIO, emit
+import socket
 
 # Load environment variables
 load_dotenv()
@@ -1339,6 +1332,150 @@ class Jarvis:
         # Clean up
         self.stop_background_listening()
 
+class WebJarvis:
+    def __init__(self, jarvis_instance):
+        self.jarvis = jarvis_instance
+        self.app = Flask(__name__)
+        self.app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'jarvis-secret-key-2024')
+        self.socketio = SocketIO(self.app, cors_allowed_origins="*")
+        self.setup_routes()
+        self.setup_socketio_events()
+        self.connected_clients = set()
+        
+    def get_local_ip(self):
+        """Get the local IP address of the machine"""
+        try:
+            # Connect to a remote server to determine local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except Exception:
+            return "127.0.0.1"
+    
+    def setup_routes(self):
+        """Setup Flask routes"""
+        
+        @self.app.route('/')
+        def index():
+            return render_template('index.html')
+        
+        @self.app.route('/api/command', methods=['POST'])
+        def api_command():
+            """API endpoint to process commands"""
+            try:
+                data = request.get_json()
+                command = data.get('command', '').strip()
+                
+                if not command:
+                    return jsonify({'error': 'No command provided'}), 400
+                
+                # Process command asynchronously
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    response = loop.run_until_complete(self.jarvis.process_command(command))
+                finally:
+                    loop.close()
+                
+                # Broadcast response to all connected clients
+                self.socketio.emit('response', {
+                    'command': command,
+                    'response': response,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                })
+                
+                return jsonify({
+                    'success': True,
+                    'response': response,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                })
+                
+            except Exception as e:
+                error_msg = f"Error processing command: {str(e)}"
+                return jsonify({'error': error_msg}), 500
+        
+        @self.app.route('/api/status')
+        def api_status():
+            """Get Jarvis status"""
+            return jsonify({
+                'status': 'online',
+                'is_awake': self.jarvis.is_awake,
+                'is_speaking': self.jarvis.is_speaking,
+                'waiting_for_response': self.jarvis.waiting_for_response,
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            })
+    
+    def setup_socketio_events(self):
+        """Setup SocketIO events for real-time communication"""
+        
+        @self.socketio.on('connect')
+        def handle_connect():
+            print(f"Client connected: {request.sid}")
+            self.connected_clients.add(request.sid)
+            emit('status', {
+                'message': 'Connected to Jarvis',
+                'is_awake': self.jarvis.is_awake,
+                'is_speaking': self.jarvis.is_speaking
+            })
+        
+        @self.socketio.on('disconnect')
+        def handle_disconnect():
+            print(f"Client disconnected: {request.sid}")
+            self.connected_clients.discard(request.sid)
+        
+        @self.socketio.on('send_command')
+        def handle_command(data):
+            """Handle command sent via WebSocket"""
+            try:
+                command = data.get('command', '').strip()
+                if not command:
+                    emit('error', {'message': 'No command provided'})
+                    return
+                
+                print(f"Web command received: {command}")
+                
+                # Add command to Jarvis queue
+                self.jarvis.command_queue.put(command)
+                
+                # Acknowledge command received
+                emit('command_received', {
+                    'command': command,
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                })
+                
+            except Exception as e:
+                emit('error', {'message': f"Error processing command: {str(e)}"})
+    
+    def broadcast_response(self, command, response):
+        """Broadcast response to all connected clients"""
+        self.socketio.emit('response', {
+            'command': command,
+            'response': response,
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        })
+    
+    def broadcast_status(self, status_data):
+        """Broadcast status update to all connected clients"""
+        self.socketio.emit('status_update', status_data)
+    
+    def run(self, host='0.0.0.0', port=5000, debug=False):
+        """Run the web server"""
+        local_ip = self.get_local_ip()
+        print(f"\n🌐 Jarvis Web Interface Available:")
+        print(f"   📱 On your phone: http://{local_ip}:{port}")
+        print(f"   💻 On this computer: http://localhost:{port}")
+        print(f"   🔗 Network URL: http://{host}:{port}")
+        print(f"\n📖 Instructions:")
+        print(f"   1. Make sure your phone is connected to the same WiFi network")
+        print(f"   2. Open your phone's browser")
+        print(f"   3. Go to: http://{local_ip}:{port}")
+        print(f"   4. You can now control Jarvis from your phone!")
+        print("-" * 60)
+        
+        self.socketio.run(self.app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+
 class GmailManager:
     def __init__(self):
         self.SCOPES = ['https://www.googleapis.com/auth/gmail.modify',
@@ -1632,7 +1769,47 @@ class GmailManager:
 
 async def main():
     jarvis = Jarvis()
-    await jarvis.run()
+    
+    # Check if web mode is requested
+    if len(sys.argv) > 1 and sys.argv[1] == '--web':
+        print("🚀 Starting Jarvis in Web Mode...")
+        web_jarvis = WebJarvis(jarvis)
+        
+        # Start voice listening in background
+        jarvis.start_background_listening()
+        
+        # Start web server (this will block)
+        try:
+            web_jarvis.run(host='0.0.0.0', port=5000)
+        except KeyboardInterrupt:
+            print("\n👋 Shutting down Jarvis...")
+            jarvis.stop_background_listening()
+    
+    elif len(sys.argv) > 1 and sys.argv[1] == '--hybrid':
+        print("🚀 Starting Jarvis in Hybrid Mode (Voice + Web)...")
+        web_jarvis = WebJarvis(jarvis)
+        
+        # Start web server in a separate thread
+        web_thread = threading.Thread(
+            target=lambda: web_jarvis.run(host='0.0.0.0', port=5000, debug=False),
+            daemon=True
+        )
+        web_thread.start()
+        
+        # Give web server time to start
+        await asyncio.sleep(2)
+        
+        # Run voice interface
+        await jarvis.run()
+    
+    else:
+        print("🚀 Starting Jarvis in Voice Mode...")
+        print("\n💡 Available modes:")
+        print("   🎤 Voice only: python jarvis.py")
+        print("   🌐 Web only: python jarvis.py --web")
+        print("   🔄 Voice + Web: python jarvis.py --hybrid")
+        print()
+        await jarvis.run()
 
 if __name__ == "__main__":
     asyncio.run(main()) 

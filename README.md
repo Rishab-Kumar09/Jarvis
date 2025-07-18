@@ -1,191 +1,131 @@
-# JARVIS - Voice-Activated AI Assistant
+# Jarvis Voice Assistant 🤖
 
-JARVIS is a sophisticated voice-activated AI assistant inspired by Tony Stark's JARVIS. It uses state-of-the-art AI technologies to provide a natural and powerful interface for controlling your computer and accessing information.
+A sophisticated voice assistant inspired by Tony Stark's J.A.R.V.I.S, built with Python. Now supports both voice control and **web-based remote control from your phone**!
 
-## Features
+## Features ✨
 
-- 🎙️ **Voice Recognition**: Understands natural speech commands using Google's Speech Recognition
-- 🗣️ **Natural Speech**: Responds with human-like speech using ElevenLabs' text-to-speech
-- 🤖 **AI-Powered Responses**: Uses GPT-4 for intelligent conversation and task handling
-- 📝 **Note Taking**: Can create, append to, and manage notes in Notepad
-- 🌐 **Web Search**: Performs web searches directly through voice commands
-- 💻 **Application Control**: Opens and closes applications with voice commands
-- ⚡ **System Commands**: Executes system commands and provides system information
-- 🌤️ **Weather Information**: Provides weather updates for any city
-- ⏰ **Time Information**: Tells the current time
-- 🎯 **Interruption Handling**: Can be interrupted mid-speech with "stop" command
+### Voice Control
+- 🎤 Voice commands with wake word detection
+- 🔊 Text-to-speech with ElevenLabs integration
+- 📧 Gmail integration (read, send, reply to emails)
+- 📅 Google Calendar management
+- 🌐 Web search functionality
+- 📝 Note-taking with Notepad/Word integration
+- 💻 System monitoring and app control
+- 🌤️ Weather information
 
-## Technical Architecture
+### 📱 NEW: Phone/Web Control
+- 🌐 **Control Jarvis from your phone browser**
+- 📱 Mobile-optimized interface
+- 🎙️ Voice input through browser
+- ⚡ Real-time WebSocket communication
+- 🔘 Quick command buttons
+- 📊 Live status monitoring
 
-### Core Technologies
-- **Python**: Primary programming language
-- **OpenAI GPT-4**: Natural language understanding and response generation
-- **ElevenLabs**: High-quality text-to-speech with customizable voices
-- **Google Speech Recognition**: Primary speech-to-text conversion
+## Setup 🛠️
 
-### Voice Processing Components
-```python
-# Speech Recognition Stack
-- SpeechRecognition library with PyAudio
-- Multiple recognition engines:
-  - Google Speech Recognition (primary)
-  - Google Cloud Speech (backup)
-  - PocketSphinx (offline fallback)
-```
-
-### Audio Processing
-```python
-# Audio Output Stack
-- sounddevice: Real-time audio playback
-- soundfile: Audio file handling
-- numpy: Audio data manipulation
-- ElevenLabs API: Primary TTS engine
-- OpenAI TTS: Fallback TTS engine
-```
-
-### System Integration
-```python
-# System Control Components
-- subprocess: Application launching
-- psutil: Process management
-- os: File system operations
-- platform: OS detection
-```
-
-### Program Control Architecture
-```python
-# Application Management Features
-- Dynamic path resolution
-- Recursive file search
-- Process lifecycle management
-- Multi-format support:
-  - Executables (.exe)
-  - Shortcuts (.lnk)
-  - Batch files (.bat, .cmd)
-  - System files (.msc)
-```
-
-### Advanced Features
-1. **Real-time Interruption Detection**
-   - Monitors audio input during speech
-   - Immediate response to "stop" command
-
-2. **Background Listening**
-   - Continuous voice command monitoring
-   - Efficient audio processing
-   - Low resource utilization
-
-3. **Command Queue Management**
-   - Sequential command processing
-   - Priority handling
-   - State management
-
-4. **Error Handling**
-   - Graceful degradation
-   - Multiple fallback systems
-   - Comprehensive error reporting
-
-## Dependencies
-
-```python
-openai>=1.0.0          # AI and TTS capabilities
-SpeechRecognition>=3.10.0  # Voice recognition
-python-dotenv>=1.0.0   # Environment configuration
-psutil>=5.9.0          # System process management
-sounddevice>=0.4.6     # Audio output handling
-soundfile>=0.12.1      # Audio file processing
-numpy>=1.24.0          # Numerical operations
-elevenlabs>=0.2.24     # Primary TTS engine
-PyAudio>=0.2.13        # Audio input handling
-pocketsphinx>=5.0.0    # Offline speech recognition
-```
-
-## Voice Command Processing Flow
-
-### 1. Voice Input Processing
-```python
-# Continuous Monitoring
-- Real-time audio capture
-- Background noise filtering
-- Speech detection algorithms
-```
-
-### 2. Command Recognition
-```python
-# Speech to Command Pipeline
-1. Audio capture and preprocessing
-2. Speech-to-text conversion
-3. Command pattern recognition
-4. Argument extraction
-```
-
-### 3. Program Control Mechanism
-```python
-# Application Management
-1. Command validation
-2. Path resolution
-3. Process spawning
-4. State monitoring
-```
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/jarvis.git
-   cd jarvis
-   ```
-
-2. Install required packages:
+1. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Set up environment variables:
-   - Copy `.env.template` to `.env`
-   - Fill in your API keys:
-     - OPENAI_API_KEY
-     - ELEVENLABS_API_KEY
-     - ELEVENLABS_VOICE_ID
-     - OPENWEATHER_API_KEY (optional)
+2. **Environment Variables:**
+   Create a `.env` file with:
+   ```
+   OPENAI_API_KEY=your_openai_api_key
+   ELEVENLABS_API_KEY=your_elevenlabs_api_key
+   ELEVENLABS_VOICE_ID=your_voice_id
+   OPENWEATHER_API_KEY=your_weather_api_key
+   FLASK_SECRET_KEY=your_secret_key (optional)
+   ```
 
-## Usage
+3. **Gmail Setup (Optional):**
+   - Download `credentials.json` from Google Cloud Console
+   - Place it in the project root
+   - First run will prompt for Gmail authorization
 
-Run JARVIS:
+## Usage 🚀
+
+### Voice-Only Mode (Default)
 ```bash
 python jarvis.py
 ```
 
-### Example Commands
+### 📱 Web-Only Mode (Phone Control)
+```bash
+python jarvis.py --web
+```
+Then open your phone browser and go to the displayed URL (e.g., `http://192.168.1.100:5000`)
 
+### Hybrid Mode (Voice + Web)
+```bash
+python jarvis.py --hybrid
+```
+Enables both voice control on the computer AND web control from your phone simultaneously!
+
+## 📱 Phone Control Features
+
+- **🎤 Voice Input:** Tap the microphone button to use voice commands
+- **⌨️ Text Input:** Type commands directly
+- **🔘 Quick Commands:** Tap preset buttons for common tasks
+- **📊 Real-time Status:** See Jarvis's current state
+- **💬 Live Responses:** Get instant feedback from commands
+- **📱 Mobile Optimized:** Responsive design that works great on phones
+
+### Quick Commands Available:
+- 📧 Check Emails
+- 🌤️ Get Weather
+- 💻 System Info
+- 🌐 Open Chrome
+- 📝 Write Note
+- 📅 Calendar
+
+## Network Setup 📡
+
+1. **Make sure your phone and computer are on the same WiFi network**
+2. **Run Jarvis in web mode:** `python jarvis.py --web`
+3. **Note the IP address shown** (e.g., `192.168.1.100:5000`)
+4. **Open your phone's browser** and navigate to that address
+5. **Start controlling Jarvis remotely!**
+
+## Voice Commands Examples 🗣️
+
+- "Jarvis, check my emails"
+- "What's the weather like?"
 - "Open Chrome"
-- "Close Notepad"
-- "Write a shopping list in Notepad"
-- "Search for latest tech news"
-- "What's the weather in London?"
-- "What time is it?"
-- "Stop" (interrupts current speech)
+- "Write a note about today's meeting"
+- "Show my calendar"
+- "Search for Python tutorials"
+- "Get system info"
 
-## Configuration
+## Troubleshooting 🔧
 
-JARVIS can be configured through environment variables in the `.env` file:
+### Web Interface Issues:
+- **Can't connect from phone:** Ensure both devices are on the same WiFi
+- **Address not working:** Try the IP address shown in the console
+- **Voice not working in browser:** Grant microphone permissions when prompted
 
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `ELEVENLABS_API_KEY`: Your ElevenLabs API key
-- `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID
-- `OPENWEATHER_API_KEY`: Your OpenWeather API key (optional)
+### Voice Issues:
+- **Not hearing Jarvis:** Check your speakers and audio output
+- **Voice not recognized:** Ensure microphone permissions are granted
+- **ElevenLabs errors:** Verify your API key and internet connection
 
-## Contributing
+## Technical Details 🔧
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+- **Framework:** Python with asyncio for concurrent operations
+- **Web Interface:** Flask + Socket.IO for real-time communication
+- **Speech Recognition:** Google Speech Recognition API
+- **Text-to-Speech:** ElevenLabs API (premium) with fallbacks
+- **Email/Calendar:** Google APIs with OAuth2 authentication
 
-## License
+## Security Note 🔒
+
+The web interface is designed for local network use only. It binds to `0.0.0.0:5000` to allow access from other devices on your local network but should not be exposed to the internet without proper security measures.
+
+## Contributing 🤝
+
+Feel free to submit issues and enhancement requests!
+
+## License 📄
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- OpenAI for GPT-4 and TTS capabilities
-- ElevenLabs for advanced text-to-speech
-- Google for Speech Recognition
-- All other open-source libraries used in this project
