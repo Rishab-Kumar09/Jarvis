@@ -1396,6 +1396,104 @@ class WebJarvis:
                 error_msg = f"Error processing command: {str(e)}"
                 return jsonify({'error': error_msg}), 500
         
+        @self.app.route('/api/process-audio', methods=['POST'])
+        def api_process_audio():
+            """Process audio file sent from phone"""
+            try:
+                if 'audio' not in request.files:
+                    return jsonify({'error': 'No audio file provided'}), 400
+                
+                audio_file = request.files['audio']
+                if audio_file.filename == '':
+                    return jsonify({'error': 'No audio file selected'}), 400
+                
+                # Save audio file temporarily (expecting WAV from phone)
+                import tempfile
+                import os
+                
+                # Determine file extension from filename or default to .wav
+                file_extension = '.wav'
+                if audio_file.filename and '.' in audio_file.filename:
+                    file_extension = '.' + audio_file.filename.split('.')[-1]
+                
+                with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
+                    audio_file.save(temp_file.name)
+                    temp_path = temp_file.name
+                
+                try:
+                    # Try direct speech recognition on the audio file
+                    import speech_recognition as sr
+                    r = sr.Recognizer()
+                    
+                    # Adjust recognition settings for better phone audio
+                    r.energy_threshold = 300
+                    r.dynamic_energy_threshold = True
+                    
+                    with sr.AudioFile(temp_path) as source:
+                        # Adjust for ambient noise
+                        r.adjust_for_ambient_noise(source, duration=0.5)
+                        audio_data = r.record(source)
+                        
+                    # Try Google Speech Recognition
+                    try:
+                        recognized_text = r.recognize_google(audio_data, language="en-US")
+                        print(f"Recognized from phone: {recognized_text}")
+                        
+                    except sr.UnknownValueError:
+                        # Try with different settings
+                        recognized_text = r.recognize_google(audio_data, language="en-US", show_all=False)
+                        if not recognized_text:
+                            raise sr.UnknownValueError("Could not understand audio")
+                    
+                    # Process command with Jarvis
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        response = loop.run_until_complete(self.jarvis.process_command(recognized_text))
+                    finally:
+                        loop.close()
+                    
+                    # Clean up temporary file
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+                    
+                    return jsonify({
+                        'success': True,
+                        'recognized_text': recognized_text,
+                        'response': response,
+                        'timestamp': datetime.now().strftime('%H:%M:%S')
+                    })
+                    
+                except sr.UnknownValueError:
+                    return jsonify({
+                        'error': 'Could not understand the audio. Please speak clearly and try again.',
+                        'recognized_text': None
+                    }), 400
+                    
+                except sr.RequestError as e:
+                    return jsonify({
+                        'error': f'Speech recognition service error: {str(e)}',
+                        'recognized_text': None
+                    }), 500
+                    
+                except Exception as e:
+                    return jsonify({
+                        'error': f'Audio processing failed: {str(e)}',
+                        'recognized_text': None
+                    }), 500
+                finally:
+                    # Ensure cleanup
+                    try:
+                        if 'temp_path' in locals():
+                            os.unlink(temp_path)
+                    except:
+                        pass
+                        
+            except Exception as e:
+                return jsonify({'error': f'Error processing audio: {str(e)}'}), 500
+        
         @self.app.route('/api/status')
         def api_status():
             """Get Jarvis status"""
