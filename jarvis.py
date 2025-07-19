@@ -32,9 +32,12 @@ from email.mime.text import MIMEText
 import pytz
 import re
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO, emit
 import socket
+import mss
+from PIL import Image
+import io as iolib
 
 # Load environment variables
 load_dotenv()
@@ -1354,6 +1357,34 @@ class WebJarvis:
         except Exception:
             return "127.0.0.1"
     
+    def capture_screen(self):
+        """Capture current desktop screen and return as JPEG bytes"""
+        try:
+            # Capture screen using mss
+            with mss.mss() as sct:
+                # Capture the primary monitor
+                monitor = sct.monitors[1]  # Monitor 1 is primary (0 is all monitors combined)
+                screenshot = sct.grab(monitor)
+                
+                # Convert to PIL Image
+                img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                
+                # Resize for mobile optimization (maintain aspect ratio)
+                max_width = 800
+                max_height = 600
+                img.thumbnail((max_width, max_height), Image.LANCZOS)
+                
+                # Convert to JPEG bytes
+                img_buffer = iolib.BytesIO()
+                img.save(img_buffer, format='JPEG', quality=85, optimize=True)
+                img_buffer.seek(0)
+                
+                return img_buffer.read()
+                
+        except Exception as e:
+            print(f"Screen capture error: {e}")
+            return None
+    
     def setup_routes(self):
         """Setup Flask routes"""
         
@@ -1504,6 +1535,71 @@ class WebJarvis:
                 'waiting_for_response': self.jarvis.waiting_for_response,
                 'timestamp': datetime.now().strftime('%H:%M:%S')
             })
+        
+
+        @self.app.route('/api/screenshot')
+        def api_screenshot():
+            """Get current desktop screenshot"""
+            try:
+                print("DEBUG: Screenshot API called")
+                screenshot_data = self.capture_screen()
+                print(f"DEBUG: Screenshot data length: {len(screenshot_data) if screenshot_data else 'None'}")
+                if screenshot_data:
+                    return Response(
+                        screenshot_data, 
+                        mimetype='image/jpeg',
+                        headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+                    )
+                else:
+                    return jsonify({'error': 'Failed to capture screen - capture_screen returned None'}), 500
+            except Exception as e:
+                print(f"DEBUG: Screenshot API exception: {e}")
+                return jsonify({'error': f'Screenshot error: {str(e)}'}), 500
+
+        @self.app.route('/api/screen-stream')
+        def screen_stream():
+            """Live screen streaming endpoint"""
+            def generate():
+                while True:
+                    try:
+                        screenshot_data = self.capture_screen()
+                        if screenshot_data:
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + 
+                                   screenshot_data + b'\r\n\r\n')
+                        time.sleep(0.5)  # 2 FPS for smooth streaming
+                    except Exception as e:
+                        print(f"Screen stream error: {e}")
+                        break
+            
+            return Response(
+                generate(),
+                mimetype='multipart/x-mixed-replace; boundary=frame',
+                headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+            )
+        
+        @self.app.route('/api/remote-click', methods=['POST'])
+        def remote_click():
+            """Handle remote mouse click on screen"""
+            try:
+                import pyautogui
+                data = request.get_json()
+                x = data.get('x', 0)
+                y = data.get('y', 0)
+                
+                # Scale coordinates if needed (screen coordinates vs image coordinates)
+                screen_width, screen_height = pyautogui.size()
+                actual_x = int(x)
+                actual_y = int(y)
+                
+                pyautogui.click(actual_x, actual_y)
+                return jsonify({
+                    'success': True,
+                    'message': f'Clicked at ({actual_x}, {actual_y})',
+                    'screen_size': [screen_width, screen_height]
+                })
+            except Exception as e:
+                return jsonify({'error': f'Click error: {str(e)}'}), 500
     
     def setup_socketio_events(self):
         """Setup SocketIO events for real-time communication"""
