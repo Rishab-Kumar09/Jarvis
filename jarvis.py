@@ -536,6 +536,7 @@ class Jarvis:
         """Process voice commands with context awareness"""
         try:
             cmd_lower = command.lower()
+            print(f"DEBUG: Processing command: '{cmd_lower}'")
             response = None
 
             # Global exit command should be checked first
@@ -923,11 +924,155 @@ class Jarvis:
                     return self.close_application(app_name)
                 return "Which application would you like me to close?"
 
+            # System control commands
+            if any(phrase in cmd_lower for phrase in ["lock screen", "lock desktop", "lock computer", "lock the screen"]):
+                print(f"DEBUG: Lock screen command detected: '{cmd_lower}'")
+                return self.lock_screen()
+
+            if any(phrase in cmd_lower for phrase in ["unlock screen", "unlock desktop", "unlock computer", "unlock the screen"]):
+                # Try to extract PIN from command
+                pin_code = None
+                words = cmd_lower.split()
+                for i, word in enumerate(words):
+                    if word in ["pin", "code", "password"] and i + 1 < len(words):
+                        pin_code = words[i + 1]
+                        break
+                    # Look for number sequences that could be PIN
+                    if word.isdigit() and len(word) >= 4:
+                        pin_code = word
+                        break
+                
+                if pin_code:
+                    return self.unlock_screen(pin_code)
+                else:
+                    return "Please provide your PIN code. Say 'unlock screen pin 1234' with your actual PIN."
+
+            if any(phrase in cmd_lower for phrase in ["sleep computer", "put computer to sleep", "sleep mode", "go to sleep"]):
+                return self.sleep_computer()
+
+            if any(phrase in cmd_lower for phrase in ["shutdown computer", "shut down computer", "power off", "turn off computer"]):
+                return self.shutdown_computer()
+
+            if any(phrase in cmd_lower for phrase in ["restart computer", "reboot computer", "restart system", "reboot"]):
+                return self.restart_computer()
+
             # If no specific command matched
             return "I'm not sure how to help with that. Could you please rephrase your request?"
 
         except Exception as e:
             return f"I encountered an error: {str(e)}"
+
+    def lock_screen(self):
+        """Lock the Windows desktop"""
+        try:
+            if self.system_info == "Windows":
+                # Use Windows built-in lock screen command
+                result = subprocess.run(['rundll32.exe', 'user32.dll,LockWorkStation'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    return "Desktop locked successfully"
+                else:
+                    return f"Failed to lock desktop: {result.stderr}"
+            else:
+                return "Screen lock is only supported on Windows for now"
+        except Exception as e:
+            return f"Error locking screen: {e}"
+
+    def unlock_screen(self, pin_code):
+        """Unlock the Windows desktop using PIN code"""
+        try:
+            if self.system_info == "Windows":
+                import pyautogui
+                import time
+                
+                print(f"DEBUG: Starting unlock process with PIN: {pin_code}")
+                
+                # Disable fail-safe temporarily
+                original_failsafe = pyautogui.FAILSAFE
+                pyautogui.FAILSAFE = False
+                
+                try:
+                    # Move mouse to safe position (center)
+                    screen_width, screen_height = pyautogui.size()
+                    pyautogui.moveTo(screen_width // 2, screen_height // 2)
+                    time.sleep(0.2)
+                    
+                    # Simple approach: Wake screen and directly type PIN
+                    print("DEBUG: Waking screen...")
+                    pyautogui.press('space')
+                    time.sleep(2.0)  # Give Windows lock screen time to appear
+                    
+                    # Click center to ensure screen has focus
+                    print("DEBUG: Clicking to focus...")
+                    pyautogui.click()
+                    time.sleep(1.0)
+                    
+                    # Simply type the PIN - Windows PIN screen should accept it
+                    print(f"DEBUG: Typing PIN directly: {pin_code}")
+                    pyautogui.write(pin_code, interval=0.4)  # Type with 0.4s between digits
+                    time.sleep(1.0)
+                    
+                    # Press Enter to unlock
+                    print("DEBUG: Pressing Enter to unlock...")
+                    pyautogui.press('enter')
+                    time.sleep(0.5)
+                    
+                    print("DEBUG: Unlock sequence completed")
+                    return f"Unlock completed - typed PIN: {pin_code}"
+                    
+                finally:
+                    # Always restore fail-safe
+                    pyautogui.FAILSAFE = original_failsafe
+                    
+            else:
+                return "Screen unlock is only supported on Windows for now"
+        except Exception as e:
+            return f"Error unlocking screen: {e}"
+
+    def sleep_computer(self):
+        """Put the computer to sleep"""
+        try:
+            if self.system_info == "Windows":
+                result = subprocess.run(['rundll32.exe', 'powrprof.dll,SetSuspendState', '0,1,0'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    return "Computer going to sleep"
+                else:
+                    return f"Failed to sleep computer: {result.stderr}"
+            else:
+                return "Sleep command is only supported on Windows for now"
+        except Exception as e:
+            return f"Error sleeping computer: {e}"
+
+    def shutdown_computer(self):
+        """Shutdown the computer"""
+        try:
+            if self.system_info == "Windows":
+                result = subprocess.run(['shutdown', '/s', '/t', '10'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    return "Computer will shutdown in 10 seconds"
+                else:
+                    return f"Failed to shutdown computer: {result.stderr}"
+            else:
+                return "Shutdown command is only supported on Windows for now"
+        except Exception as e:
+            return f"Error shutting down computer: {e}"
+
+    def restart_computer(self):
+        """Restart the computer"""
+        try:
+            if self.system_info == "Windows":
+                result = subprocess.run(['shutdown', '/r', '/t', '10'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    return "Computer will restart in 10 seconds"
+                else:
+                    return f"Failed to restart computer: {result.stderr}"
+            else:
+                return "Restart command is only supported on Windows for now"
+        except Exception as e:
+            return f"Error restarting computer: {e}"
 
     def listen(self):
         """Listen for voice input using microphone with enhanced recognition"""
@@ -1357,6 +1502,36 @@ class WebJarvis:
         except Exception:
             return "127.0.0.1"
     
+    def get_public_ip(self):
+        """Get the public IP address for global access"""
+        try:
+            # Try multiple services in case one is down
+            services = [
+                'https://api.ipify.org?format=text',
+                'https://ipv4.icanhazip.com',
+                'https://api.myip.com',
+                'https://httpbin.org/ip'
+            ]
+            
+            for service in services:
+                try:
+                    if 'httpbin' in service:
+                        response = requests.get(service, timeout=5)
+                        return response.json()['origin']
+                    elif 'myip' in service:
+                        response = requests.get(service, timeout=5)
+                        return response.json()['ip']
+                    else:
+                        response = requests.get(service, timeout=5)
+                        return response.text.strip()
+                except:
+                    continue
+            
+            return "Unable to detect"
+        except Exception as e:
+            print(f"Error getting public IP: {e}")
+            return "Unable to detect"
+    
     def capture_screen(self):
         """Capture current desktop screen and return as JPEG bytes"""
         try:
@@ -1600,6 +1775,96 @@ class WebJarvis:
                 })
             except Exception as e:
                 return jsonify({'error': f'Click error: {str(e)}'}), 500
+        
+        @self.app.route('/api/lock-screen', methods=['POST'])
+        def lock_screen_api():
+            """Lock the desktop screen"""
+            try:
+                result = self.jarvis.lock_screen()
+                return jsonify({
+                    'success': True,
+                    'message': result
+                })
+            except Exception as e:
+                return jsonify({'error': f'Lock screen error: {str(e)}'}), 500
+
+        @self.app.route('/api/unlock-screen', methods=['POST'])
+        def unlock_screen_api():
+            """Unlock the desktop screen with PIN"""
+            try:
+                data = request.get_json()
+                pin_code = data.get('pin', '')
+                
+                if not pin_code:
+                    return jsonify({'error': 'PIN code is required'}), 400
+                
+                result = self.jarvis.unlock_screen(pin_code)
+                return jsonify({
+                    'success': True,
+                    'message': result
+                })
+            except Exception as e:
+                return jsonify({'error': f'Unlock screen error: {str(e)}'}), 500
+
+        @self.app.route('/api/sleep-computer', methods=['POST'])
+        def sleep_computer_api():
+            """Put the computer to sleep"""
+            try:
+                result = self.jarvis.sleep_computer()
+                return jsonify({
+                    'success': True,
+                    'message': result
+                })
+            except Exception as e:
+                return jsonify({'error': f'Sleep computer error: {str(e)}'}), 500
+
+        @self.app.route('/api/shutdown-computer', methods=['POST'])
+        def shutdown_computer_api():
+            """Shutdown the computer"""
+            try:
+                result = self.jarvis.shutdown_computer()
+                return jsonify({
+                    'success': True,
+                    'message': result
+                })
+            except Exception as e:
+                return jsonify({'error': f'Shutdown computer error: {str(e)}'}), 500
+
+        @self.app.route('/api/restart-computer', methods=['POST'])
+        def restart_computer_api():
+            """Restart the computer"""
+            try:
+                result = self.jarvis.restart_computer()
+                return jsonify({
+                    'success': True,
+                    'message': result
+                })
+            except Exception as e:
+                return jsonify({'error': f'Restart computer error: {str(e)}'}), 500
+
+        @self.app.route('/api/connection-info')
+        def connection_info():
+            """Get connection information for setup"""
+            try:
+                local_ip = self.get_local_ip()
+                public_ip = self.get_public_ip()
+                
+                return jsonify({
+                    'local_ip': local_ip,
+                    'public_ip': public_ip,
+                    'port': 5000,
+                    'local_url': f'http://{local_ip}:5000',
+                    'global_url': f'http://{public_ip}:5000',
+                    'setup_required': public_ip != "Unable to detect",
+                    'instructions': {
+                        'step1': 'Set up port forwarding on your router',
+                        'step2': f'Forward external port 5000 to internal {local_ip}:5000',
+                        'step3': f'Access globally using: http://{public_ip}:5000',
+                        'security': 'Consider changing the default port for security'
+                    }
+                })
+            except Exception as e:
+                return jsonify({'error': f'Connection info error: {str(e)}'}), 500
     
     def setup_socketio_events(self):
         """Setup SocketIO events for real-time communication"""
@@ -1657,16 +1922,43 @@ class WebJarvis:
     def run(self, host='0.0.0.0', port=5000, debug=False):
         """Run the web server"""
         local_ip = self.get_local_ip()
-        print(f"\n🌐 Jarvis Web Interface Available:")
-        print(f"   📱 On your phone: http://{local_ip}:{port}")
-        print(f"   💻 On this computer: http://localhost:{port}")
-        print(f"   🔗 Network URL: http://{host}:{port}")
-        print(f"\n📖 Instructions:")
-        print(f"   1. Make sure your phone is connected to the same WiFi network")
-        print(f"   2. Open your phone's browser")
-        print(f"   3. Go to: http://{local_ip}:{port}")
-        print(f"   4. You can now control Jarvis from your phone!")
-        print("-" * 60)
+        public_ip = self.get_public_ip()
+        
+        print(f"\n🚀 === JARVIS CONTROL CENTER ONLINE === 🚀")
+        print(f"\n🏠 LOCAL ACCESS (Same WiFi Network):")
+        print(f"   📱 Mobile: http://{local_ip}:{port}")
+        print(f"   💻 Desktop: http://localhost:{port}")
+        
+        print(f"\n🌍 GLOBAL ACCESS (Tony Stark Mode):")
+        if public_ip != "Unable to detect":
+            print(f"   🌐 Your Public IP: {public_ip}")
+            print(f"   🎯 Global URL: http://{public_ip}:{port}")
+            print(f"   🔧 Status: SETUP REQUIRED")
+            print(f"\n⚙️  ROUTER SETUP INSTRUCTIONS:")
+            print(f"   1️⃣  Log into your router admin panel")
+            print(f"   2️⃣  Go to Port Forwarding settings")
+            print(f"   3️⃣  Forward External Port 5000 → Internal {local_ip}:5000")
+            print(f"   4️⃣  Save settings and test from outside network")
+            print(f"   🔒 Security: Consider changing port 5000 to something else")
+        else:
+            print(f"   ❌ Unable to detect public IP")
+            print(f"   🔍 Check your internet connection")
+        
+        print(f"\n🎮 NEW FEATURES:")
+        print(f"   🔒 Lock Screen Control")
+        print(f"   🔓 PIN Unlock Support") 
+        print(f"   😴 Sleep/Shutdown/Restart")
+        print(f"   🖱️  Remote Mouse Control")
+        print(f"   📺 Live Screen Streaming")
+        
+        print(f"\n🗣️  VOICE COMMANDS:")
+        print(f"   'Lock screen' - Lock your desktop")
+        print(f"   'Unlock screen pin 1234' - Unlock with your PIN")
+        print(f"   'Sleep computer' - Put computer to sleep")
+        print(f"   'Shutdown computer' - Power off (10 sec delay)")
+        print(f"   'Restart computer' - Reboot system (10 sec delay)")
+        
+        print("=" * 80)
         
         self.socketio.run(self.app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
 

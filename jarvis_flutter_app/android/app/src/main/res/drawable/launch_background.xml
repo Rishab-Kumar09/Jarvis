@@ -1,12 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- JARVIS Custom Splash Screen -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <!-- Black background for JARVIS theme -->
+    <item android:drawable="@android:color/black" />
+    
+    <!-- JARVIS Arc Reactor Design -->
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="240dp" android:height="240dp" />
+            <stroke 
+                android:width="8dp" 
+                android:color="#00D4FF" />
+            <gradient 
+                android:type="radial"
+                android:gradientRadius="120dp"
+                android:startColor="#4000D4FF"
+                android:centerColor="#2000D4FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    
+    <!-- Inner glow circle -->
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="140dp" android:height="140dp" />
+            <gradient 
+                android:type="radial"
+                android:gradientRadius="70dp"
+                android:startColor="#8000FFFF"
+                android:centerColor="#5000D4FF"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    
+    <!-- Core circle -->
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="80dp" android:height="80dp" />
+            <solid android:color="#00FFFF" />
+        </shape>
+    </item>
+    
+    <!-- Center dot -->
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="30dp" android:height="30dp" />
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
 </layer-list>

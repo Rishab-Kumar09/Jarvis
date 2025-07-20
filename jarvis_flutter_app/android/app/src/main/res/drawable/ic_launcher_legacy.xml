@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    
+    <!-- Black background -->
+    <path android:fillColor="#000000"
+          android:pathData="M0,0h48v48H0z"/>
+    
+    <!-- Outer glow -->
+    <path android:fillColor="#2000D4FF"
+          android:pathData="M24,24m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0"/>
+    
+    <!-- Arc reactor outer ring -->
+    <path android:fillColor="#00000000"
+          android:strokeColor="#00D4FF"
+          android:strokeWidth="2"
+          android:pathData="M24,24m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0"/>
+    
+    <!-- Arc reactor segments -->
+    <path android:fillColor="#4000D4FF"
+          android:pathData="M24,8 L24,6 A18,18 0,0,1 36.73,12 L35.46,13.27 A16,16 0,0,0 24,8 Z"/>
+    <path android:fillColor="#6000D4FF"
+          android:pathData="M36.73,12 L38,10.73 A18,18 0,0,1 42,24 L40,24 A16,16 0,0,0 36.73,12 Z"/>
+    <path android:fillColor="#4000D4FF"
+          android:pathData="M42,24 L40,24 A16,16 0,0,0 36.73,36 L38,37.27 A18,18 0,0,1 42,24 Z"/>
+    <path android:fillColor="#6000D4FF"
+          android:pathData="M36.73,36 L35.46,34.73 A16,16 0,0,0 24,40 L24,42 A18,18 0,0,1 36.73,36 Z"/>
+    <path android:fillColor="#4000D4FF"
+          android:pathData="M24,42 L24,40 A16,16 0,0,0 11.27,34.73 L10,37.27 A18,18 0,0,1 24,42 Z"/>
+    <path android:fillColor="#6000D4FF"
+          android:pathData="M11.27,34.73 L12.54,36 A16,16 0,0,0 6,24 L8,24 A18,18 0,0,1 11.27,34.73 Z"/>
+    <path android:fillColor="#4000D4FF"
+          android:pathData="M6,24 L8,24 A16,16 0,0,0 11.27,12 L10,10.73 A18,18 0,0,1 6,24 Z"/>
+    <path android:fillColor="#6000D4FF"
+          android:pathData="M11.27,12 L12.54,13.27 A16,16 0,0,0 24,8 L24,6 A18,18 0,0,1 11.27,12 Z"/>
+    
+    <!-- Inner glow -->
+    <path android:fillColor="#4000FFFF"
+          android:pathData="M24,24m-12,0a12,12 0,1 1,24 0a12,12 0,1 1,-24 0"/>
+    
+    <!-- Core circle -->
+    <path android:fillColor="#00FFFF"
+          android:pathData="M24,24m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0"/>
+    
+    <!-- Center bright dot -->
+    <path android:fillColor="#FFFFFF"
+          android:pathData="M24,24m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+</vector> 

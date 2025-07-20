@@ -39,4 +39,8 @@ dev_dependencies:
   flutter_lints: ^3.0.0
 
 flutter:
-  uses-material-design: true 
+  uses-material-design: true
+  
+  # Assets for JARVIS branding
+  assets:
+    - assets/images/ 
