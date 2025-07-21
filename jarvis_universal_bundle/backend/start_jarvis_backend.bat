@@ -1,0 +1,3 @@
+@echo off 
+echo 🚀 Starting JARVIS Backend... 
+"%~dp0dist\JARVIS-Backend.exe" --web 

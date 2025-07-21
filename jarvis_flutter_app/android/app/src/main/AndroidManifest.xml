@@ -15,6 +15,10 @@
     <!-- Additional permissions for speech recognition and TTS -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- Biometric authentication permissions -->
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
         android:label="J.A.R.V.I.S Control"

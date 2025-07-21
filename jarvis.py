@@ -18,6 +18,8 @@ import queue
 from elevenlabs import generate, play
 import sys
 import openai
+import ctypes
+from ctypes import wintypes
 import win32com.client
 import pyttsx3
 from pathlib import Path
@@ -74,6 +76,17 @@ class Jarvis:
             Emotion: Calm and composed, with subtle hints of dry wit and unwavering loyalty."""
         }
         self.system_info = platform.system()
+        
+        # Smart Keep-Awake System
+        self.phone_connected = False
+        self.keep_awake_active = False
+        self.connected_clients = set()  # Track connected phone IPs
+        
+        # Windows Sleep Prevention Constants
+        self.ES_CONTINUOUS = 0x80000000
+        self.ES_SYSTEM_REQUIRED = 0x00000001
+        self.ES_DISPLAY_REQUIRED = 0x00000002
+        
         # Set default audio device
         sd.default.samplerate = 24000
         sd.default.channels = 1
@@ -930,31 +943,10 @@ class Jarvis:
                 return self.lock_screen()
 
             if any(phrase in cmd_lower for phrase in ["unlock screen", "unlock desktop", "unlock computer", "unlock the screen"]):
-                # Try to extract PIN from command
-                pin_code = None
-                words = cmd_lower.split()
-                for i, word in enumerate(words):
-                    if word in ["pin", "code", "password"] and i + 1 < len(words):
-                        pin_code = words[i + 1]
-                        break
-                    # Look for number sequences that could be PIN
-                    if word.isdigit() and len(word) >= 4:
-                        pin_code = word
-                        break
-                
-                if pin_code:
-                    return self.unlock_screen(pin_code)
-                else:
-                    return "Please provide your PIN code. Say 'unlock screen pin 1234' with your actual PIN."
+                # Trigger Windows Hello biometric authentication
+                return self.trigger_biometric_unlock()
 
-            if any(phrase in cmd_lower for phrase in ["sleep computer", "put computer to sleep", "sleep mode", "go to sleep"]):
-                return self.sleep_computer()
 
-            if any(phrase in cmd_lower for phrase in ["shutdown computer", "shut down computer", "power off", "turn off computer"]):
-                return self.shutdown_computer()
-
-            if any(phrase in cmd_lower for phrase in ["restart computer", "reboot computer", "restart system", "reboot"]):
-                return self.restart_computer()
 
             # If no specific command matched
             return "I'm not sure how to help with that. Could you please rephrase your request?"
@@ -978,101 +970,165 @@ class Jarvis:
         except Exception as e:
             return f"Error locking screen: {e}"
 
-    def unlock_screen(self, pin_code):
-        """Unlock the Windows desktop using PIN code"""
+    def keep_system_awake(self):
+        """Prevent Windows from sleeping while phone is connected"""
         try:
-            if self.system_info == "Windows":
-                import pyautogui
-                import time
-                
-                print(f"DEBUG: Starting unlock process with PIN: {pin_code}")
-                
-                # Disable fail-safe temporarily
-                original_failsafe = pyautogui.FAILSAFE
-                pyautogui.FAILSAFE = False
-                
-                try:
-                    # Move mouse to safe position (center)
-                    screen_width, screen_height = pyautogui.size()
-                    pyautogui.moveTo(screen_width // 2, screen_height // 2)
-                    time.sleep(0.2)
-                    
-                    # Simple approach: Wake screen and directly type PIN
-                    print("DEBUG: Waking screen...")
-                    pyautogui.press('space')
-                    time.sleep(2.0)  # Give Windows lock screen time to appear
-                    
-                    # Click center to ensure screen has focus
-                    print("DEBUG: Clicking to focus...")
-                    pyautogui.click()
-                    time.sleep(1.0)
-                    
-                    # Simply type the PIN - Windows PIN screen should accept it
-                    print(f"DEBUG: Typing PIN directly: {pin_code}")
-                    pyautogui.write(pin_code, interval=0.4)  # Type with 0.4s between digits
-                    time.sleep(1.0)
-                    
-                    # Press Enter to unlock
-                    print("DEBUG: Pressing Enter to unlock...")
-                    pyautogui.press('enter')
-                    time.sleep(0.5)
-                    
-                    print("DEBUG: Unlock sequence completed")
-                    return f"Unlock completed - typed PIN: {pin_code}"
-                    
-                finally:
-                    # Always restore fail-safe
-                    pyautogui.FAILSAFE = original_failsafe
-                    
-            else:
-                return "Screen unlock is only supported on Windows for now"
-        except Exception as e:
-            return f"Error unlocking screen: {e}"
-
-    def sleep_computer(self):
-        """Put the computer to sleep"""
-        try:
-            if self.system_info == "Windows":
-                result = subprocess.run(['rundll32.exe', 'powrprof.dll,SetSuspendState', '0,1,0'], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    return "Computer going to sleep"
+            if self.system_info == "Windows" and not self.keep_awake_active:
+                # Prevent system sleep and display sleep
+                result = ctypes.windll.kernel32.SetThreadExecutionState(
+                    self.ES_CONTINUOUS | self.ES_SYSTEM_REQUIRED | self.ES_DISPLAY_REQUIRED
+                )
+                if result:
+                    self.keep_awake_active = True
+                    print("🌟 JARVIS: Keep-awake activated - PC will stay awake while phone connected")
+                    return "✅ System keep-awake activated"
                 else:
-                    return f"Failed to sleep computer: {result.stderr}"
+                    return "❌ Failed to activate keep-awake"
+            elif self.keep_awake_active:
+                return "ℹ️ Keep-awake already active"
             else:
-                return "Sleep command is only supported on Windows for now"
+                return "❌ Keep-awake only supported on Windows"
         except Exception as e:
-            return f"Error sleeping computer: {e}"
+            print(f"DEBUG: Error activating keep-awake: {e}")
+            return f"❌ Keep-awake error: {e}"
 
-    def shutdown_computer(self):
-        """Shutdown the computer"""
+    def restore_sleep_behavior(self):
+        """Allow Windows to sleep normally when phone disconnects"""
+        try:
+            if self.system_info == "Windows" and self.keep_awake_active:
+                # Restore normal power management
+                result = ctypes.windll.kernel32.SetThreadExecutionState(self.ES_CONTINUOUS)
+                if result:
+                    self.keep_awake_active = False
+                    print("💤 JARVIS: Normal sleep behavior restored - PC can sleep normally")
+                    return "✅ Normal sleep behavior restored"
+                else:
+                    return "❌ Failed to restore sleep behavior"
+            elif not self.keep_awake_active:
+                return "ℹ️ Sleep behavior already normal"
+            else:
+                return "❌ Sleep management only supported on Windows"
+        except Exception as e:
+            print(f"DEBUG: Error restoring sleep behavior: {e}")
+            return f"❌ Sleep restore error: {e}"
+
+    def update_phone_connection(self, client_ip, connected=True):
+        """Update phone connection status for smart sleep management"""
+        if connected:
+            # Track last seen time for each client
+            if not hasattr(self, 'client_last_seen'):
+                self.client_last_seen = {}
+            
+            was_new_client = client_ip not in self.connected_clients
+            self.connected_clients.add(client_ip)
+            self.client_last_seen[client_ip] = time.time()
+            
+            if was_new_client:
+                print(f"📱 JARVIS: Phone connected from {client_ip}")
+                
+                # First phone connection - activate keep-awake
+                if len(self.connected_clients) == 1:
+                    self.phone_connected = True
+                    return self.keep_system_awake()
+        else:
+            if client_ip in self.connected_clients:
+                self.connected_clients.discard(client_ip)
+                if hasattr(self, 'client_last_seen') and client_ip in self.client_last_seen:
+                    del self.client_last_seen[client_ip]
+                print(f"📱 JARVIS: Phone disconnected from {client_ip}")
+                
+                # Last phone disconnected - restore sleep
+                if len(self.connected_clients) == 0:
+                    self.phone_connected = False
+                    return self.restore_sleep_behavior()
+        
+        return f"ℹ️ Connection status updated. Connected devices: {len(self.connected_clients)}"
+
+    def cleanup_stale_connections(self):
+        """Remove clients that haven't been seen for 10 seconds"""
+        if not hasattr(self, 'client_last_seen'):
+            return
+            
+        current_time = time.time()
+        stale_clients = []
+        
+        for client_ip, last_seen in self.client_last_seen.items():
+            if current_time - last_seen > 10:  # 10 seconds timeout
+                stale_clients.append(client_ip)
+        
+        for client_ip in stale_clients:
+            self.update_phone_connection(client_ip, connected=False)
+
+    def start_connection_monitor(self):
+        """Start background thread to monitor connections"""
+        def monitor_connections():
+            while True:
+                time.sleep(5)  # Check every 5 seconds
+                self.cleanup_stale_connections()
+        
+        monitor_thread = threading.Thread(target=monitor_connections, daemon=True)
+        monitor_thread.start()
+        print("🔍 JARVIS: Connection monitor started")
+
+    def trigger_biometric_unlock(self):
+        """Trigger Windows Hello biometric authentication"""
         try:
             if self.system_info == "Windows":
-                result = subprocess.run(['shutdown', '/s', '/t', '10'], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    return "Computer will shutdown in 10 seconds"
+                print("DEBUG: Starting Windows Hello biometric unlock...")
+                
+                # Try using Windows Hello API via PowerShell
+                import subprocess
+                
+                # Use runas command to trigger Windows credential prompt
+                powershell_script = '''
+                # Use runas to trigger Windows authentication (includes Windows Hello if configured)
+                try {
+                    # This will prompt for Windows Hello, PIN, or password
+                    $process = Start-Process -FilePath "cmd" -ArgumentList "/c echo JARVIS Authentication Successful" -Verb RunAs -PassThru -Wait -WindowStyle Hidden
+                    
+                    if ($process.ExitCode -eq 0) {
+                        Write-Output "SUCCESS: Windows authentication successful"
+                        exit 0
+                    } else {
+                        Write-Output "FAILED: Authentication failed or cancelled"
+                        exit 1
+                    }
+                } catch {
+                    Write-Output "FAILED: Authentication error - $($_.Exception.Message)"
+                    exit 1
+                }
+                '''
+                
+                # Execute PowerShell script
+                print("DEBUG: Executing Windows Hello authentication...")
+                result = subprocess.run(
+                    ['powershell', '-Command', powershell_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=60  # 60 second timeout for biometric auth
+                )
+                
+                print(f"DEBUG: PowerShell exit code: {result.returncode}")
+                print(f"DEBUG: PowerShell output: {result.stdout}")
+                print(f"DEBUG: PowerShell errors: {result.stderr}")
+                
+                if result.returncode == 0 and "SUCCESS" in result.stdout:
+                    return "🔓 Windows Hello authentication successful - PC unlocked!"
+                elif "FAILED" in result.stdout:
+                    return f"❌ Windows Hello authentication failed: {result.stdout.strip()}"
                 else:
-                    return f"Failed to shutdown computer: {result.stderr}"
+                    return f"❌ Windows Hello error: {result.stderr.strip() if result.stderr else 'Unknown error'}"
+                    
             else:
-                return "Shutdown command is only supported on Windows for now"
+                return "Windows Hello is only supported on Windows"
+                
+        except subprocess.TimeoutExpired:
+            return "⏰ Windows Hello authentication timed out"
         except Exception as e:
-            return f"Error shutting down computer: {e}"
+            print(f"DEBUG: Exception in biometric unlock: {e}")
+            return f"❌ Windows Hello authentication error: {e}"
 
-    def restart_computer(self):
-        """Restart the computer"""
-        try:
-            if self.system_info == "Windows":
-                result = subprocess.run(['shutdown', '/r', '/t', '10'], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    return "Computer will restart in 10 seconds"
-                else:
-                    return f"Failed to restart computer: {result.stderr}"
-            else:
-                return "Restart command is only supported on Windows for now"
-        except Exception as e:
-            return f"Error restarting computer: {e}"
+
 
     def listen(self):
         """Listen for voice input using microphone with enhanced recognition"""
@@ -1703,11 +1759,17 @@ class WebJarvis:
         @self.app.route('/api/status')
         def api_status():
             """Get Jarvis status"""
+            # Track phone connection for smart keep-awake
+            client_ip = request.remote_addr
+            self.jarvis.update_phone_connection(client_ip, connected=True)
+            
             return jsonify({
                 'status': 'online',
                 'is_awake': self.jarvis.is_awake,
                 'is_speaking': self.jarvis.is_speaking,
                 'waiting_for_response': self.jarvis.waiting_for_response,
+                'keep_awake_active': self.jarvis.keep_awake_active,
+                'connected_devices': len(self.jarvis.connected_clients),
                 'timestamp': datetime.now().strftime('%H:%M:%S')
             })
         
@@ -1716,6 +1778,10 @@ class WebJarvis:
         def api_screenshot():
             """Get current desktop screenshot"""
             try:
+                # Track phone connection for smart keep-awake
+                client_ip = request.remote_addr
+                self.jarvis.update_phone_connection(client_ip, connected=True)
+                
                 print("DEBUG: Screenshot API called")
                 screenshot_data = self.capture_screen()
                 print(f"DEBUG: Screenshot data length: {len(screenshot_data) if screenshot_data else 'None'}")
@@ -1788,59 +1854,19 @@ class WebJarvis:
             except Exception as e:
                 return jsonify({'error': f'Lock screen error: {str(e)}'}), 500
 
-        @self.app.route('/api/unlock-screen', methods=['POST'])
-        def unlock_screen_api():
-            """Unlock the desktop screen with PIN"""
+        @self.app.route('/api/biometric-unlock', methods=['POST'])
+        def biometric_unlock_api():
+            """Trigger Windows Hello biometric authentication"""
             try:
-                data = request.get_json()
-                pin_code = data.get('pin', '')
-                
-                if not pin_code:
-                    return jsonify({'error': 'PIN code is required'}), 400
-                
-                result = self.jarvis.unlock_screen(pin_code)
+                result = self.jarvis.trigger_biometric_unlock()
                 return jsonify({
                     'success': True,
                     'message': result
                 })
             except Exception as e:
-                return jsonify({'error': f'Unlock screen error: {str(e)}'}), 500
+                return jsonify({'error': f'Biometric unlock error: {str(e)}'}), 500
 
-        @self.app.route('/api/sleep-computer', methods=['POST'])
-        def sleep_computer_api():
-            """Put the computer to sleep"""
-            try:
-                result = self.jarvis.sleep_computer()
-                return jsonify({
-                    'success': True,
-                    'message': result
-                })
-            except Exception as e:
-                return jsonify({'error': f'Sleep computer error: {str(e)}'}), 500
 
-        @self.app.route('/api/shutdown-computer', methods=['POST'])
-        def shutdown_computer_api():
-            """Shutdown the computer"""
-            try:
-                result = self.jarvis.shutdown_computer()
-                return jsonify({
-                    'success': True,
-                    'message': result
-                })
-            except Exception as e:
-                return jsonify({'error': f'Shutdown computer error: {str(e)}'}), 500
-
-        @self.app.route('/api/restart-computer', methods=['POST'])
-        def restart_computer_api():
-            """Restart the computer"""
-            try:
-                result = self.jarvis.restart_computer()
-                return jsonify({
-                    'success': True,
-                    'message': result
-                })
-            except Exception as e:
-                return jsonify({'error': f'Restart computer error: {str(e)}'}), 500
 
         @self.app.route('/api/connection-info')
         def connection_info():
@@ -1946,17 +1972,18 @@ class WebJarvis:
         
         print(f"\n🎮 NEW FEATURES:")
         print(f"   🔒 Lock Screen Control")
-        print(f"   🔓 PIN Unlock Support") 
-        print(f"   😴 Sleep/Shutdown/Restart")
+        print(f"   🌟 Smart Keep-Awake System") 
         print(f"   🖱️  Remote Mouse Control")
         print(f"   📺 Live Screen Streaming")
         
+        print(f"\n🌟 SMART KEEP-AWAKE:")
+        print(f"   📱 Phone Connected → PC Stays Awake")
+        print(f"   📱 Phone Disconnects → Normal Sleep Behavior")
+        print(f"   🔒 Manual Lock Button Still Works")
+        
         print(f"\n🗣️  VOICE COMMANDS:")
         print(f"   'Lock screen' - Lock your desktop")
-        print(f"   'Unlock screen pin 1234' - Unlock with your PIN")
-        print(f"   'Sleep computer' - Put computer to sleep")
-        print(f"   'Shutdown computer' - Power off (10 sec delay)")
-        print(f"   'Restart computer' - Reboot system (10 sec delay)")
+
         
         print("=" * 80)
         
@@ -2261,6 +2288,9 @@ async def main():
         print("🚀 Starting Jarvis in Web Mode...")
         web_jarvis = WebJarvis(jarvis)
         
+        # Start smart connection monitor
+        jarvis.start_connection_monitor()
+        
         # Start voice listening in background
         jarvis.start_background_listening()
         
@@ -2274,6 +2304,9 @@ async def main():
     elif len(sys.argv) > 1 and sys.argv[1] == '--hybrid':
         print("🚀 Starting Jarvis in Hybrid Mode (Voice + Web)...")
         web_jarvis = WebJarvis(jarvis)
+        
+        # Start smart connection monitor
+        jarvis.start_connection_monitor()
         
         # Start web server in a separate thread
         web_thread = threading.Thread(

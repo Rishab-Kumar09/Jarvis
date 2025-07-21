@@ -1,0 +1,3 @@
+@echo off 
+echo 🔧 Installing JARVIS as Windows Service... 
+REM TODO: Add Windows service installation logic 
