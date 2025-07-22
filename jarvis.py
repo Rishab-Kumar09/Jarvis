@@ -2037,6 +2037,98 @@ class WebJarvis:
                 print(f"DEBUG: Webcam screenshot error: {e}")
                 return jsonify({'error': f'Webcam screenshot error: {str(e)}'}), 500
         
+        # Smart Network Detection for Adaptive FPS
+        @self.app.route('/api/network/ping')
+        def api_network_ping():
+            """Quick ping test for latency measurement"""
+            import time
+            start_time = time.time()
+            # Simple response to measure round-trip time
+            return jsonify({
+                'timestamp': start_time,
+                'server_time': time.time(),
+                'message': 'pong'
+            })
+        
+        @self.app.route('/api/network/speed-test')
+        def api_network_speed_test():
+            """Bandwidth test with different payload sizes"""
+            import time
+            size = request.args.get('size', '1kb')
+            
+            # Generate test data of different sizes
+            test_data = {
+                '1kb': 'x' * 1024,           # 1KB - for latency
+                '10kb': 'x' * (10 * 1024),   # 10KB - for moderate bandwidth
+                '50kb': 'x' * (50 * 1024),   # 50KB - for bandwidth test  
+                '100kb': 'x' * (100 * 1024), # 100KB - for high bandwidth test
+            }
+            
+            payload = test_data.get(size, test_data['1kb'])
+            
+            return jsonify({
+                'size': size,
+                'data_length': len(payload),
+                'test_data': payload,
+                'timestamp': time.time()
+            })
+        
+        @self.app.route('/api/network/adaptive-config')
+        def api_network_adaptive_config():
+            """Get recommended FPS settings based on network quality"""
+            latency = float(request.args.get('latency', '50'))  # ms
+            bandwidth = float(request.args.get('bandwidth', '1000'))  # KB/s
+            
+            # Smart FPS recommendations based on network conditions
+            if latency < 20 and bandwidth > 2000:  # Excellent network (LAN/WiFi 6)
+                recommendation = {
+                    'network_quality': 'excellent',
+                    'webcam_fps': 240,
+                    'desktop_fps': 60,
+                    'quality': 'high',
+                    'description': '🚀 Blazing Fast Network'
+                }
+            elif latency < 50 and bandwidth > 1000:  # Good network (Fast WiFi/5G)
+                recommendation = {
+                    'network_quality': 'good',
+                    'webcam_fps': 120,
+                    'desktop_fps': 30,
+                    'quality': 'high',
+                    'description': '⚡ Fast Network'
+                }
+            elif latency < 100 and bandwidth > 500:  # Fair network (4G/WiFi)
+                recommendation = {
+                    'network_quality': 'fair',
+                    'webcam_fps': 60,
+                    'desktop_fps': 15,
+                    'quality': 'medium',
+                    'description': '🌐 Good Network'
+                }
+            elif latency < 200 and bandwidth > 200:  # Slow network (3G/Slow WiFi)
+                recommendation = {
+                    'network_quality': 'slow',
+                    'webcam_fps': 15,
+                    'desktop_fps': 5,
+                    'quality': 'medium',
+                    'description': '📶 Slow Network'
+                }
+            else:  # Very slow network (2G/Poor connection)
+                recommendation = {
+                    'network_quality': 'very_slow',
+                    'webcam_fps': 2,
+                    'desktop_fps': 1,
+                    'quality': 'low',
+                    'description': '🐌 Very Slow Network'
+                }
+            
+            recommendation.update({
+                'measured_latency': latency,
+                'measured_bandwidth': bandwidth,
+                'timestamp': time.time()
+            })
+            
+            return jsonify(recommendation)
+
         # Add hooks for voice command integration  
         self.start_webcam = self._start_webcam
         self.stop_webcam = self._stop_webcam
