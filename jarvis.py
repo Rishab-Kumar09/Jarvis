@@ -34,12 +34,13 @@ from email.mime.text import MIMEText
 import pytz
 import re
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from flask_socketio import SocketIO, emit
 import socket
 import mss
 from PIL import Image
 import io as iolib
+import cv2
 
 # Load environment variables
 load_dotenv()
@@ -946,7 +947,19 @@ class Jarvis:
                 # Trigger Windows Hello biometric authentication
                 return self.trigger_biometric_unlock()
 
-
+            # Webcam control via voice or phone
+            if any(phrase in cmd_lower for phrase in ["turn on webcam", "show webcam", "start webcam", "enable webcam"]):
+                if hasattr(self, 'web_jarvis') and hasattr(self.web_jarvis, 'start_webcam'):
+                    result = self.web_jarvis.start_webcam()
+                    return result + ". You can now view the webcam feed in the app."
+                else:
+                    return "Webcam control is not available in this mode."
+            if any(phrase in cmd_lower for phrase in ["turn off webcam", "hide webcam", "stop webcam", "disable webcam"]):
+                if hasattr(self, 'web_jarvis') and hasattr(self.web_jarvis, 'stop_webcam'):
+                    result = self.web_jarvis.stop_webcam()
+                    return result + ". Webcam feed is now off."
+                else:
+                    return "Webcam control is not available in this mode."
 
             # If no specific command matched
             return "I'm not sure how to help with that. Could you please rephrase your request?"
@@ -1546,6 +1559,13 @@ class WebJarvis:
         self.setup_socketio_events()
         self.connected_clients = set()
         
+        # Webcam state
+        self.webcam_active = False
+        self.webcam_thread = None
+        self.webcam_lock = threading.Lock()
+        self.webcam_frame = None
+        self.webcam_capture = None
+    
     def get_local_ip(self):
         """Get the local IP address of the machine"""
         try:
@@ -1776,25 +1796,44 @@ class WebJarvis:
 
         @self.app.route('/api/screenshot')
         def api_screenshot():
-            """Get current desktop screenshot"""
+            """Get a screenshot of the desktop - optimized for high FPS streaming"""
             try:
-                # Track phone connection for smart keep-awake
-                client_ip = request.remote_addr
-                self.jarvis.update_phone_connection(client_ip, connected=True)
-                
                 print("DEBUG: Screenshot API called")
-                screenshot_data = self.capture_screen()
-                print(f"DEBUG: Screenshot data length: {len(screenshot_data) if screenshot_data else 'None'}")
-                if screenshot_data:
+                
+                # Use mss for faster screenshot capture
+                with mss.mss() as sct:
+                    # Capture the primary monitor
+                    monitor = sct.monitors[1]  
+                    screenshot = sct.grab(monitor)
+                    
+                    # Convert to PIL Image for processing
+                    img = Image.frombytes('RGB', screenshot.size, screenshot.rgb)
+                    
+                    # Optimize image size for faster transmission
+                    # Resize to max 1920x1080 for performance
+                    if img.width > 1920 or img.height > 1080:
+                        img.thumbnail((1920, 1080), Image.Resampling.LANCZOS)
+                    
+                    # Convert to JPEG with optimized settings for speed
+                    img_io = iolib.BytesIO()
+                    img.save(img_io, 'JPEG', quality=75, optimize=True)  # Reduced quality for speed
+                    img_io.seek(0)
+                    
+                    screenshot_data = img_io.getvalue()
+                    print(f"DEBUG: Screenshot data length: {len(screenshot_data)}")
+                    
                     return Response(
-                        screenshot_data, 
+                        screenshot_data,
                         mimetype='image/jpeg',
-                        headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+                        headers={
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0',
+                        }
                     )
-                else:
-                    return jsonify({'error': 'Failed to capture screen - capture_screen returned None'}), 500
+            
             except Exception as e:
-                print(f"DEBUG: Screenshot API exception: {e}")
+                print(f"DEBUG: Screenshot error: {e}")
                 return jsonify({'error': f'Screenshot error: {str(e)}'}), 500
 
         @self.app.route('/api/screen-stream')
@@ -1892,6 +1931,180 @@ class WebJarvis:
             except Exception as e:
                 return jsonify({'error': f'Connection info error: {str(e)}'}), 500
     
+        # Webcam control endpoints
+        def webcam_streaming_loop():
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                print("Webcam not found or in use.")
+                with self.webcam_lock:
+                    self.webcam_active = False
+                return
+            
+            # Set optimal settings for responsiveness
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
+            cap.set(cv2.CAP_PROP_FPS, 30)        # Higher capture rate
+            
+            with self.webcam_lock:
+                self.webcam_capture = cap
+                
+            while True:
+                with self.webcam_lock:
+                    if not self.webcam_active:
+                        break
+                        
+                ret, frame = cap.read()
+                if not ret:
+                    print("Failed to read webcam frame")
+                    continue
+                    
+                # Resize frame for better performance (optional)
+                height, width = frame.shape[:2]
+                if width > 640:  # Only resize if too large
+                    scale = 640 / width
+                    new_width = int(width * scale)
+                    new_height = int(height * scale)
+                    frame = cv2.resize(frame, (new_width, new_height))
+                    
+                # Encode as JPEG with speed-optimized settings for 90 FPS
+                ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    with self.webcam_lock:
+                        self.webcam_frame = jpeg.tobytes()
+                else:
+                    print("Failed to encode webcam frame.")
+                    
+                # Minimal delay to prevent excessive CPU usage while supporting 90 FPS
+                time.sleep(0.01)  # ~100 FPS max capture rate for ultra-smooth streaming
+                
+            cap.release()
+            with self.webcam_lock:
+                self.webcam_capture = None
+                self.webcam_frame = None
+
+        @self.app.route('/api/webcam/start', methods=['POST'])
+        def api_webcam_start():
+            with self.webcam_lock:
+                if self.webcam_active:
+                    return jsonify({'success': True, 'message': 'Webcam already streaming'})
+                self.webcam_active = True
+                self.webcam_thread = threading.Thread(target=webcam_streaming_loop, daemon=True)
+                self.webcam_thread.start()
+            return jsonify({'success': True, 'message': 'Webcam streaming started'})
+
+        @self.app.route('/api/webcam/stop', methods=['POST'])
+        def api_webcam_stop():
+            with self.webcam_lock:
+                self.webcam_active = False
+            return jsonify({'success': True, 'message': 'Webcam streaming stopped'})
+
+        @self.app.route('/api/webcam/stream')
+        def api_webcam_stream():
+            def generate():
+                while True:
+                    with self.webcam_lock:
+                        if not self.webcam_active:
+                            break
+                        frame = self.webcam_frame
+                    if frame is not None:
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' +
+                               frame + b'\r\n\r\n')
+                    else:
+                        # No frame yet, wait a bit
+                        time.sleep(0.05)
+            return Response(stream_with_context(generate()),
+                            mimetype='multipart/x-mixed-replace; boundary=frame',
+                            headers={'Cache-Control': 'no-cache, no-store, must-revalidate'})
+        
+        @self.app.route('/api/webcam/screenshot')
+        def api_webcam_screenshot():
+            """Get single webcam frame as JPEG (similar to desktop screenshot)"""
+            try:
+                with self.webcam_lock:
+                    if not self.webcam_active:
+                        return jsonify({'error': 'Webcam not active'}), 400
+                    
+                    frame = self.webcam_frame
+                    if frame is not None:
+                        return Response(
+                            frame,
+                            mimetype='image/jpeg',
+                            headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+                        )
+                    else:
+                        return jsonify({'error': 'No webcam frame available'}), 500
+            except Exception as e:
+                print(f"DEBUG: Webcam screenshot error: {e}")
+                return jsonify({'error': f'Webcam screenshot error: {str(e)}'}), 500
+        
+        # Add hooks for voice command integration  
+        self.start_webcam = self._start_webcam
+        self.stop_webcam = self._stop_webcam
+        
+    def _start_webcam(self):
+        """Start webcam streaming for voice commands"""
+        with self.webcam_lock:
+            if not self.webcam_active:
+                self.webcam_active = True
+                def webcam_streaming_loop():
+                    cap = cv2.VideoCapture(0)
+                    if not cap.isOpened():
+                        print("Webcam not found or in use.")
+                        with self.webcam_lock:
+                            self.webcam_active = False
+                        return
+                        
+                    # Set optimal settings for responsiveness
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
+                    cap.set(cv2.CAP_PROP_FPS, 30)        # Higher capture rate
+                    
+                    with self.webcam_lock:
+                        self.webcam_capture = cap
+                        
+                    while True:
+                        with self.webcam_lock:
+                            if not self.webcam_active:
+                                break
+                                
+                        ret, frame = cap.read()
+                        if not ret:
+                            print("Failed to read webcam frame")
+                            continue
+                            
+                        # Resize frame for better performance (optional)
+                        height, width = frame.shape[:2]
+                        if width > 640:  # Only resize if too large
+                            scale = 640 / width
+                            new_width = int(width * scale)
+                            new_height = int(height * scale)
+                            frame = cv2.resize(frame, (new_width, new_height))
+                            
+                        # Encode as JPEG with speed-optimized settings for 90 FPS
+                        ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        if ret:
+                            with self.webcam_lock:
+                                self.webcam_frame = jpeg.tobytes()
+                        else:
+                            print("Failed to encode webcam frame.")
+                            
+                        # Minimal delay to prevent excessive CPU usage while supporting 90 FPS
+                        time.sleep(0.01)  # ~100 FPS max capture rate for ultra-smooth streaming
+                        
+                    cap.release()
+                    with self.webcam_lock:
+                        self.webcam_capture = None
+                        self.webcam_frame = None
+                        
+                self.webcam_thread = threading.Thread(target=webcam_streaming_loop, daemon=True)
+                self.webcam_thread.start()
+        return "Webcam streaming started"
+
+    def _stop_webcam(self):
+        """Stop webcam streaming for voice commands"""  
+        with self.webcam_lock:
+            self.webcam_active = False
+        return "Webcam streaming stopped"
+
     def setup_socketio_events(self):
         """Setup SocketIO events for real-time communication"""
         
@@ -1951,7 +2164,7 @@ class WebJarvis:
         public_ip = self.get_public_ip()
         
         print(f"\n🚀 === JARVIS CONTROL CENTER ONLINE === 🚀")
-        print(f"\n🏠 LOCAL ACCESS (Same WiFi Network):")
+        print(f"\n�� LOCAL ACCESS (Same WiFi Network):")
         print(f"   📱 Mobile: http://{local_ip}:{port}")
         print(f"   💻 Desktop: http://localhost:{port}")
         
@@ -2285,8 +2498,9 @@ async def main():
     
     # Check if web mode is requested
     if len(sys.argv) > 1 and sys.argv[1] == '--web':
-        print("🚀 Starting Jarvis in Web Mode...")
+        print("🚀 Starting Jarvis in Web Mode with Voice Recognition...")
         web_jarvis = WebJarvis(jarvis)
+        jarvis.web_jarvis = web_jarvis  # <-- Add this line
         
         # Start smart connection monitor
         jarvis.start_connection_monitor()
@@ -2294,9 +2508,21 @@ async def main():
         # Start voice listening in background
         jarvis.start_background_listening()
         
-        # Start web server (this will block)
+        # Start web server in a separate thread
+        web_thread = threading.Thread(
+            target=lambda: web_jarvis.run(host='0.0.0.0', port=5000, debug=False),
+            daemon=True
+        )
+        web_thread.start()
+        
+        # Give web server time to start
+        await asyncio.sleep(2)
+        print("\n🎤 Voice recognition active! Try saying 'Hey Jarvis'...")
+        print("🌐 Web interface ready for phone connection!")
+        
+        # Run voice command processing loop (same as voice mode)
         try:
-            web_jarvis.run(host='0.0.0.0', port=5000)
+            await jarvis.run()
         except KeyboardInterrupt:
             print("\n👋 Shutting down Jarvis...")
             jarvis.stop_background_listening()
@@ -2304,6 +2530,7 @@ async def main():
     elif len(sys.argv) > 1 and sys.argv[1] == '--hybrid':
         print("🚀 Starting Jarvis in Hybrid Mode (Voice + Web)...")
         web_jarvis = WebJarvis(jarvis)
+        jarvis.web_jarvis = web_jarvis  # <-- Add this line
         
         # Start smart connection monitor
         jarvis.start_connection_monitor()
