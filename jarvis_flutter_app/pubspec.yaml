@@ -22,6 +22,12 @@ dependencies:
   # Voice solution: Built-in keyboard voice input + TTS output (no problematic packages)
   flutter_tts: ^3.8.3
   
+  # Audio streaming and playback
+  audioplayers: ^6.0.0
+  
+  # URL launching for mobile control system
+  url_launcher: ^6.1.12
+  
   # State management
   provider: ^6.1.1
   

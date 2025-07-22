@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.jarvis_app"
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = "27.0.12077973"  // Required for speech_to_text and flutter_tts
 
     compileOptions {
@@ -28,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "com.example.jarvis_app"
         minSdk = 24  // Increased for better speech recognition support
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
     }

@@ -20,10 +20,12 @@ class MainActivity : FlutterFragmentActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var pendingResult: MethodChannel.Result? = null
     private var isListening = false
+    private var mobileControlPlugin: MobileControlPlugin? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
+        // Register voice input channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startVoiceInput" -> {
@@ -35,6 +37,10 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
         }
+        
+        // Register mobile control plugin
+        mobileControlPlugin = MobileControlPlugin(this)
+        mobileControlPlugin?.register(flutterEngine)
     }
 
     private fun startSilentVoiceRecognition() {
@@ -170,8 +176,15 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        // Handle other activity results if needed (MobileControlPlugin no longer uses activity results)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopListening()
+        mobileControlPlugin?.destroy()
     }
 }
