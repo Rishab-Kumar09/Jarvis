@@ -951,13 +951,13 @@ class Jarvis:
             if any(phrase in cmd_lower for phrase in ["turn on webcam", "show webcam", "start webcam", "enable webcam"]):
                 if hasattr(self, 'web_jarvis') and hasattr(self.web_jarvis, 'start_webcam'):
                     result = self.web_jarvis.start_webcam()
-                    return result + ". You can now view the webcam feed and hear audio in the app."
+                    return result + ". You can now view the webcam feed in the app."
                 else:
                     return "Webcam control is not available in this mode."
             if any(phrase in cmd_lower for phrase in ["turn off webcam", "hide webcam", "stop webcam", "disable webcam"]):
                 if hasattr(self, 'web_jarvis') and hasattr(self.web_jarvis, 'stop_webcam'):
                     result = self.web_jarvis.stop_webcam()
-                    return result + ". Webcam feed and audio are now off."
+                    return result + ". Webcam feed is now off."
                 else:
                     return "Webcam control is not available in this mode."
 
@@ -1565,15 +1565,6 @@ class WebJarvis:
         self.webcam_lock = threading.Lock()
         self.webcam_frame = None
         self.webcam_capture = None
-        
-        # Audio streaming state
-        self.audio_active = False
-        self.audio_thread = None
-        self.audio_lock = threading.Lock()
-        self.audio_buffer = None
-        self.audio_stream = None
-        self.audio_sample_rate = 44100
-        self.audio_chunk_size = 1024
     
     def get_local_ip(self):
         """Get the local IP address of the machine"""
@@ -1940,90 +1931,6 @@ class WebJarvis:
             except Exception as e:
                 return jsonify({'error': f'Connection info error: {str(e)}'}), 500
     
-        # Audio streaming loop for webcam audio
-        def audio_streaming_loop():
-            """Capture system audio or microphone and stream it"""
-            audio_queue = queue.Queue(maxsize=10)  # Buffer for audio chunks
-            
-            def audio_callback(indata, frames, time, status):
-                """Callback for audio input stream"""
-                if status:
-                    print(f"Audio stream status: {status}")
-                
-                with self.audio_lock:
-                    if self.audio_active:
-                        # Convert audio to bytes for streaming
-                        audio_bytes = (indata * 32767).astype(np.int16).tobytes()
-                        try:
-                            audio_queue.put_nowait(audio_bytes)
-                        except queue.Full:
-                            # Drop oldest chunk if buffer is full
-                            try:
-                                audio_queue.get_nowait()
-                                audio_queue.put_nowait(audio_bytes)
-                            except queue.Empty:
-                                pass
-            
-            try:
-                # Start audio input stream (default input device - usually microphone)
-                with sd.InputStream(callback=audio_callback,
-                                  channels=1,  # Mono audio for efficiency
-                                  samplerate=self.audio_sample_rate,
-                                  blocksize=self.audio_chunk_size):
-                    print("🎵 Audio streaming started")
-                    
-                    while True:
-                        with self.audio_lock:
-                            if not self.audio_active:
-                                break
-                        
-                        try:
-                            # Get audio chunk from queue
-                            audio_chunk = audio_queue.get(timeout=0.1)
-                            with self.audio_lock:
-                                self.audio_buffer = audio_chunk
-                        except queue.Empty:
-                            continue
-                            
-            except Exception as e:
-                print(f"Audio streaming error: {e}")
-                with self.audio_lock:
-                    self.audio_active = False
-            
-            print("🎵 Audio streaming stopped")
-        
-    def _create_wav_from_pcm(self, pcm_data):
-        """Create a proper WAV file from raw PCM data"""
-        import struct
-        
-        # WAV file parameters
-        sample_rate = self.audio_sample_rate
-        bits_per_sample = 16
-        channels = 1
-        
-        # Calculate sizes
-        data_size = len(pcm_data)
-        chunk_size = 36 + data_size
-        
-        # Create WAV header
-        wav_header = struct.pack('<4sI4s4sIHHIIHH4sI',
-            b'RIFF',           # Chunk ID
-            chunk_size,        # Chunk Size
-            b'WAVE',           # Format
-            b'fmt ',           # Subchunk1 ID
-            16,                # Subchunk1 Size (PCM)
-            1,                 # Audio Format (PCM)
-            channels,          # Channels
-            sample_rate,       # Sample Rate
-            sample_rate * channels * bits_per_sample // 8,  # Byte Rate
-            channels * bits_per_sample // 8,                # Block Align
-            bits_per_sample,   # Bits per Sample
-            b'data',           # Subchunk2 ID
-            data_size          # Subchunk2 Size
-        )
-        
-        return wav_header + pcm_data
-        
         # Webcam control endpoints
         def webcam_streaming_loop():
             cap = cv2.VideoCapture(0)
@@ -2082,26 +1989,13 @@ class WebJarvis:
                 self.webcam_active = True
                 self.webcam_thread = threading.Thread(target=webcam_streaming_loop, daemon=True)
                 self.webcam_thread.start()
-            
-            # Also start audio streaming with webcam
-            with self.audio_lock:
-                if not self.audio_active:
-                    self.audio_active = True
-                    self.audio_thread = threading.Thread(target=audio_streaming_loop, daemon=True)
-                    self.audio_thread.start()
-            
-            return jsonify({'success': True, 'message': 'Webcam and audio streaming started'})
+            return jsonify({'success': True, 'message': 'Webcam streaming started'})
 
         @self.app.route('/api/webcam/stop', methods=['POST'])
         def api_webcam_stop():
             with self.webcam_lock:
                 self.webcam_active = False
-            
-            # Also stop audio streaming
-            with self.audio_lock:
-                self.audio_active = False
-                
-            return jsonify({'success': True, 'message': 'Webcam and audio streaming stopped'})
+            return jsonify({'success': True, 'message': 'Webcam streaming stopped'})
 
         @self.app.route('/api/webcam/stream')
         def api_webcam_stream():
@@ -2143,160 +2037,6 @@ class WebJarvis:
                 print(f"DEBUG: Webcam screenshot error: {e}")
                 return jsonify({'error': f'Webcam screenshot error: {str(e)}'}), 500
         
-        # Audio streaming endpoints
-        @self.app.route('/api/audio/stream')
-        def api_audio_stream():
-            """Stream real-time audio data"""
-            def generate_audio():
-                while True:
-                    with self.audio_lock:
-                        if not self.audio_active:
-                            break
-                        audio_chunk = self.audio_buffer
-                    
-                    if audio_chunk is not None:
-                        yield audio_chunk
-                    else:
-                        # No audio yet, wait a bit
-                        time.sleep(0.01)
-                        
-            return Response(generate_audio(),
-                           mimetype='audio/wav',
-                           headers={
-                               'Cache-Control': 'no-cache, no-store, must-revalidate',
-                               'Connection': 'keep-alive'
-                           })
-        
-        @self.app.route('/api/audio/chunk')
-        def api_audio_chunk():
-            """Get single audio chunk (for polling-based audio)"""
-            try:
-                with self.audio_lock:
-                    if not self.audio_active:
-                        return jsonify({'error': 'Audio not active'}), 400
-                    
-                    audio_chunk = self.audio_buffer
-                    if audio_chunk is not None:
-                        # Create proper WAV file with headers
-                        wav_data = self._create_wav_from_pcm(audio_chunk)
-                        return Response(
-                            wav_data,
-                            mimetype='audio/wav',
-                            headers={
-                                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                                'Content-Type': 'audio/wav',
-                                'Content-Length': str(len(wav_data))
-                            }
-                        )
-                    else:
-                        return jsonify({'error': 'No audio chunk available'}), 500
-            except Exception as e:
-                print(f"DEBUG: Audio chunk error: {e}")
-                return jsonify({'error': f'Audio chunk error: {str(e)}'}), 500
-        
-        @self.app.route('/api/audio/info')
-        def api_audio_info():
-            """Get audio stream information"""
-            return jsonify({
-                'sample_rate': self.audio_sample_rate,
-                'chunk_size': self.audio_chunk_size,
-                'channels': 1,
-                'active': self.audio_active,
-                'format': 'PCM 16-bit'
-            })
-        
-        # Smart Network Detection for Adaptive FPS
-        @self.app.route('/api/network/ping')
-        def api_network_ping():
-            """Quick ping test for latency measurement"""
-            import time
-            start_time = time.time()
-            # Simple response to measure round-trip time
-            return jsonify({
-                'timestamp': start_time,
-                'server_time': time.time(),
-                'message': 'pong'
-            })
-        
-        @self.app.route('/api/network/speed-test')
-        def api_network_speed_test():
-            """Bandwidth test with different payload sizes"""
-            import time
-            size = request.args.get('size', '1kb')
-            
-            # Generate test data of different sizes
-            test_data = {
-                '1kb': 'x' * 1024,           # 1KB - for latency
-                '10kb': 'x' * (10 * 1024),   # 10KB - for moderate bandwidth
-                '50kb': 'x' * (50 * 1024),   # 50KB - for bandwidth test  
-                '100kb': 'x' * (100 * 1024), # 100KB - for high bandwidth test
-            }
-            
-            payload = test_data.get(size, test_data['1kb'])
-            
-            return jsonify({
-                'size': size,
-                'data_length': len(payload),
-                'test_data': payload,
-                'timestamp': time.time()
-            })
-        
-        @self.app.route('/api/network/adaptive-config')
-        def api_network_adaptive_config():
-            """Get recommended FPS settings based on network quality"""
-            latency = float(request.args.get('latency', '50'))  # ms
-            bandwidth = float(request.args.get('bandwidth', '1000'))  # KB/s
-            
-            # Smart FPS recommendations based on network conditions
-            if latency < 20 and bandwidth > 2000:  # Excellent network (LAN/WiFi 6)
-                recommendation = {
-                    'network_quality': 'excellent',
-                    'webcam_fps': 240,
-                    'desktop_fps': 60,
-                    'quality': 'high',
-                    'description': '🚀 Blazing Fast Network'
-                }
-            elif latency < 50 and bandwidth > 1000:  # Good network (Fast WiFi/5G)
-                recommendation = {
-                    'network_quality': 'good',
-                    'webcam_fps': 120,
-                    'desktop_fps': 30,
-                    'quality': 'high',
-                    'description': '⚡ Fast Network'
-                }
-            elif latency < 100 and bandwidth > 500:  # Fair network (4G/WiFi)
-                recommendation = {
-                    'network_quality': 'fair',
-                    'webcam_fps': 60,
-                    'desktop_fps': 15,
-                    'quality': 'medium',
-                    'description': '🌐 Good Network'
-                }
-            elif latency < 200 and bandwidth > 200:  # Slow network (3G/Slow WiFi)
-                recommendation = {
-                    'network_quality': 'slow',
-                    'webcam_fps': 15,
-                    'desktop_fps': 5,
-                    'quality': 'medium',
-                    'description': '📶 Slow Network'
-                }
-            else:  # Very slow network (2G/Poor connection)
-                recommendation = {
-                    'network_quality': 'very_slow',
-                    'webcam_fps': 2,
-                    'desktop_fps': 1,
-                    'quality': 'low',
-                    'description': '🐌 Very Slow Network'
-                }
-            
-            recommendation.update({
-                'measured_latency': latency,
-                'measured_bandwidth': bandwidth,
-                'timestamp': time.time()
-            })
-            
-            return jsonify(recommendation)
-
         # Add hooks for voice command integration  
         self.start_webcam = self._start_webcam
         self.stop_webcam = self._stop_webcam
@@ -2357,77 +2097,13 @@ class WebJarvis:
                         
                 self.webcam_thread = threading.Thread(target=webcam_streaming_loop, daemon=True)
                 self.webcam_thread.start()
-                
-        # Also start audio streaming with webcam
-        with self.audio_lock:
-            if not self.audio_active:
-                self.audio_active = True
-                def audio_streaming_loop():
-                    """Capture system audio or microphone and stream it"""
-                    audio_queue = queue.Queue(maxsize=10)  # Buffer for audio chunks
-                    
-                    def audio_callback(indata, frames, time, status):
-                        """Callback for audio input stream"""
-                        if status:
-                            print(f"Audio stream status: {status}")
-                        
-                        with self.audio_lock:
-                            if self.audio_active:
-                                # Convert audio to bytes for streaming
-                                audio_bytes = (indata * 32767).astype(np.int16).tobytes()
-                                try:
-                                    audio_queue.put_nowait(audio_bytes)
-                                except queue.Full:
-                                    # Drop oldest chunk if buffer is full
-                                    try:
-                                        audio_queue.get_nowait()
-                                        audio_queue.put_nowait(audio_bytes)
-                                    except queue.Empty:
-                                        pass
-                    
-                    try:
-                        # Start audio input stream (default input device - usually microphone)
-                        with sd.InputStream(callback=audio_callback,
-                                          channels=1,  # Mono audio for efficiency
-                                          samplerate=self.audio_sample_rate,
-                                          blocksize=self.audio_chunk_size):
-                            print("🎵 Audio streaming started")
-                            
-                            while True:
-                                with self.audio_lock:
-                                    if not self.audio_active:
-                                        break
-                                
-                                try:
-                                    # Get audio chunk from queue
-                                    audio_chunk = audio_queue.get(timeout=0.1)
-                                    with self.audio_lock:
-                                        self.audio_buffer = audio_chunk
-                                except queue.Empty:
-                                    continue
-                                    
-                    except Exception as e:
-                        print(f"Audio streaming error: {e}")
-                        with self.audio_lock:
-                            self.audio_active = False
-                    
-                    print("🎵 Audio streaming stopped")
-                
-                self.audio_thread = threading.Thread(target=audio_streaming_loop, daemon=True)
-                self.audio_thread.start()
-                
-        return "Webcam and audio streaming started"
+        return "Webcam streaming started"
 
     def _stop_webcam(self):
         """Stop webcam streaming for voice commands"""  
         with self.webcam_lock:
             self.webcam_active = False
-            
-        # Also stop audio streaming
-        with self.audio_lock:
-            self.audio_active = False
-            
-        return "Webcam and audio streaming stopped"
+        return "Webcam streaming stopped"
 
     def setup_socketio_events(self):
         """Setup SocketIO events for real-time communication"""
