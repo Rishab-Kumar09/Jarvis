@@ -454,15 +454,15 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
             val fuzzyScore = calculateFuzzyScore(normalizedSearch, normalizedContact)
             val phoneticScore = calculatePhoneticScore(normalizedSearch, normalizedContact)
             
-            // Weighted combination of scores
-            val finalScore = (exactScore * 0.5) + (fuzzyScore * 0.3) + (phoneticScore * 0.2)
+            // Weighted combination of scores (prioritize fuzzy/phonetic for better matching)
+            val finalScore = (exactScore * 0.2) + (fuzzyScore * 0.6) + (phoneticScore * 0.2)
             
             // Debug logging for high scores
             if (finalScore > 0.3) {
                 println("🔍 JARVIS DEBUG: '${contact.name}' -> exact:$exactScore, fuzzy:$fuzzyScore, phonetic:$phoneticScore, final:$finalScore")
             }
             
-            if (finalScore > bestScore && finalScore > 0.6) { // 60% confidence threshold
+            if (finalScore > bestScore && finalScore > 0.4) { // 40% confidence threshold (optimized for speech recognition)
                 bestScore = finalScore
                 bestMatch = ContactInfo(contact.name, contact.number, finalScore)
             }
@@ -471,7 +471,7 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
         if (bestMatch != null) {
             println("🔍 JARVIS DEBUG: Best match found: '${bestMatch.name}' with ${(bestMatch.confidence * 100).toInt()}% confidence")
         } else {
-            println("🔍 JARVIS DEBUG: No match found above 60% threshold. Best score was: $bestScore")
+            println("🔍 JARVIS DEBUG: No match found above 40% threshold. Best score was: $bestScore")
         }
         
         return bestMatch
