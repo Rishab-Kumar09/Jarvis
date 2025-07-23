@@ -375,14 +375,17 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
         }
         
         try {
+            // Get all contacts first for smart fuzzy matching
+            val allContacts = mutableListOf<ContactInfo>()
+            
             val cursor: Cursor? = activity.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 arrayOf(
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
                     ContactsContract.CommonDataKinds.Phone.NUMBER
                 ),
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-                arrayOf("%$contactName%"),
+                null,
+                null,
                 null
             )
             
@@ -390,25 +393,143 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
                 val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 
-                if (it.moveToFirst()) {
+                while (it.moveToNext()) {
                     val name = it.getString(nameIndex)
                     val number = it.getString(numberIndex)
-                    
-                    result.success(mapOf(
-                        "name" to name,
-                        "phone" to number,
-                        "found" to true
-                    ))
-                } else {
-                    result.success(mapOf(
-                        "found" to false,
-                        "message" to "Contact '$contactName' not found"
-                    ))
+                    if (name != null && number != null) {
+                        allContacts.add(ContactInfo(name, number))
+                    }
                 }
+            }
+            
+            // Find best match using fuzzy matching
+            val bestMatch = findBestContactMatch(contactName, allContacts)
+            
+            if (bestMatch != null) {
+                result.success(mapOf(
+                    "name" to bestMatch.name,
+                    "phone" to bestMatch.number,
+                    "found" to true,
+                    "confidence" to bestMatch.confidence
+                ))
+            } else {
+                result.success(mapOf(
+                    "found" to false,
+                    "message" to "No close match found for '$contactName'. Try being more specific."
+                ))
             }
         } catch (e: Exception) {
             result.error("CONTACT_SEARCH_ERROR", "Failed to search contact: ${e.message}", null)
         }
+    }
+    
+    private data class ContactInfo(val name: String, val number: String, val confidence: Double = 0.0)
+    
+    private fun findBestContactMatch(searchName: String, contacts: List<ContactInfo>): ContactInfo? {
+        val normalizedSearch = normalizeContactName(searchName)
+        var bestMatch: ContactInfo? = null
+        var bestScore = 0.0
+        
+        // Debug logging
+        println("🔍 JARVIS DEBUG: Searching for '$searchName' (normalized: '$normalizedSearch')")
+        println("🔍 JARVIS DEBUG: Found ${contacts.size} contacts to search through")
+        
+        for (contact in contacts) {
+            val normalizedContact = normalizeContactName(contact.name)
+            
+            // Calculate similarity score using multiple methods
+            val exactScore = if (normalizedContact.contains(normalizedSearch) || 
+                                normalizedSearch.contains(normalizedContact)) 1.0 else 0.0
+            
+            val fuzzyScore = calculateFuzzyScore(normalizedSearch, normalizedContact)
+            val phoneticScore = calculatePhoneticScore(normalizedSearch, normalizedContact)
+            
+            // Weighted combination of scores
+            val finalScore = (exactScore * 0.5) + (fuzzyScore * 0.3) + (phoneticScore * 0.2)
+            
+            // Debug logging for high scores
+            if (finalScore > 0.3) {
+                println("🔍 JARVIS DEBUG: '${contact.name}' -> exact:$exactScore, fuzzy:$fuzzyScore, phonetic:$phoneticScore, final:$finalScore")
+            }
+            
+            if (finalScore > bestScore && finalScore > 0.6) { // 60% confidence threshold
+                bestScore = finalScore
+                bestMatch = ContactInfo(contact.name, contact.number, finalScore)
+            }
+        }
+        
+        if (bestMatch != null) {
+            println("🔍 JARVIS DEBUG: Best match found: '${bestMatch.name}' with ${(bestMatch.confidence * 100).toInt()}% confidence")
+        } else {
+            println("🔍 JARVIS DEBUG: No match found above 60% threshold. Best score was: $bestScore")
+        }
+        
+        return bestMatch
+    }
+    
+    private fun normalizeContactName(name: String): String {
+        return name.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), "") // Remove special characters
+            .replace(Regex("\\s+"), " ")        // Normalize spaces
+            .trim()
+    }
+    
+    private fun calculateFuzzyScore(str1: String, str2: String): Double {
+        val maxLen = maxOf(str1.length, str2.length)
+        if (maxLen == 0) return 1.0
+        
+        val distance = levenshteinDistance(str1, str2)
+        return 1.0 - (distance.toDouble() / maxLen)
+    }
+    
+    private fun calculatePhoneticScore(str1: String, str2: String): Double {
+        // Handle common phonetic variations
+        val phoneticVariations = mapOf(
+            "mummy" to listOf("mommy", "mama", "mom", "mother"),
+            "daddy" to listOf("papa", "dad", "father"),
+            "grandma" to listOf("grandmom", "grandmother", "nana", "granny"),
+            "grandpa" to listOf("grandfather", "granddad", "papa"),
+            "bro" to listOf("brother", "bhai"),
+            "sis" to listOf("sister", "didi"),
+            "hubby" to listOf("husband"),
+            "wifey" to listOf("wife")
+        )
+        
+        val words1 = str1.split(" ")
+        val words2 = str2.split(" ")
+        
+        for (word1 in words1) {
+            for (word2 in words2) {
+                // Check direct phonetic matches
+                phoneticVariations[word1]?.let { variations ->
+                    if (variations.contains(word2) || word2 == word1) return 0.9
+                }
+                phoneticVariations[word2]?.let { variations ->
+                    if (variations.contains(word1) || word1 == word2) return 0.9
+                }
+            }
+        }
+        
+        return 0.0
+    }
+    
+    private fun levenshteinDistance(str1: String, str2: String): Int {
+        val dp = Array(str1.length + 1) { IntArray(str2.length + 1) }
+        
+        for (i in 0..str1.length) dp[i][0] = i
+        for (j in 0..str2.length) dp[0][j] = j
+        
+        for (i in 1..str1.length) {
+            for (j in 1..str2.length) {
+                dp[i][j] = if (str1[i-1] == str2[j-1]) {
+                    dp[i-1][j-1]
+                } else {
+                    1 + minOf(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+                }
+            }
+        }
+        
+        return dp[str1.length][str2.length]
     }
     
     private fun callContactByName(contactName: String, result: Result) {
@@ -425,14 +546,17 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
         }
         
         try {
+            // Get all contacts first for smart fuzzy matching
+            val allContacts = mutableListOf<ContactInfo>()
+            
             val cursor: Cursor? = activity.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 arrayOf(
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
                     ContactsContract.CommonDataKinds.Phone.NUMBER
                 ),
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-                arrayOf("%$contactName%"),
+                null,
+                null,
                 null
             )
             
@@ -440,21 +564,30 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
                 val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 
-                if (it.moveToFirst()) {
+                while (it.moveToNext()) {
                     val name = it.getString(nameIndex)
                     val number = it.getString(numberIndex)
-                    
-                    // Make the call
-                    val callIntent = Intent(Intent.ACTION_CALL).apply {
-                        data = Uri.parse("tel:$number")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    if (name != null && number != null) {
+                        allContacts.add(ContactInfo(name, number))
                     }
-                    
-                    activity.startActivity(callIntent)
-                    result.success("Calling $name at $number")
-                } else {
-                    result.error("CONTACT_NOT_FOUND", "Contact '$contactName' not found", null)
                 }
+            }
+            
+            // Find best match using fuzzy matching
+            val bestMatch = findBestContactMatch(contactName, allContacts)
+            
+            if (bestMatch != null) {
+                // Make the call
+                val callIntent = Intent(Intent.ACTION_CALL).apply {
+                    data = Uri.parse("tel:${bestMatch.number}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                
+                activity.startActivity(callIntent)
+                val confidencePercent = (bestMatch.confidence * 100).toInt()
+                result.success("Calling ${bestMatch.name} at ${bestMatch.number} (${confidencePercent}% match)")
+            } else {
+                result.error("CONTACT_NOT_FOUND", "No close match found for '$contactName'. Try being more specific.", null)
             }
         } catch (e: Exception) {
             result.error("CALL_ERROR", "Failed to call contact: ${e.message}", null)
