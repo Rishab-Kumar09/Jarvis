@@ -28,12 +28,17 @@ import android.speech.RecognitionListener
 import android.os.Bundle
 import java.util.Locale
 import android.telephony.SmsManager
+import android.util.Log
 
 class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
     
     private var speechRecognitionResult: Result? = null
     private val SPEECH_REQUEST_CODE = 1001
     private var speechRecognizer: SpeechRecognizer? = null
+    
+    // Always listening variables
+    private var isAlwaysListening = false
+    private var methodChannel: MethodChannel? = null
     
     companion object {
         private const val CHANNEL_NAME = "jarvis_mobile_control"
@@ -43,6 +48,7 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
     
     fun register(flutterEngine: FlutterEngine) {
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME)
+        methodChannel = channel
         channel.setMethodCallHandler(this)
     }
     
@@ -51,9 +57,27 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
             "launchApp" -> {
                 val packageName = call.argument<String>("packageName")
                 if (packageName != null) {
-                    launchApp(packageName, result)
+                    launchAppOrContainer(packageName, result)
                 } else {
                     result.error("INVALID_ARGUMENTS", "Package name is required", null)
+                }
+            }
+            "openContainer" -> {
+                val appName = call.argument<String>("appName")
+                val appType = call.argument<String>("appType") ?: "browser"
+                val startUrl = call.argument<String>("startUrl") ?: "https://www.google.com"
+                if (appName != null) {
+                    openContainer(appName, appType, startUrl, result)
+                } else {
+                    result.error("INVALID_ARGUMENTS", "App name is required", null)
+                }
+            }
+            "closeContainer" -> {
+                val appName = call.argument<String>("appName")
+                if (appName != null) {
+                    closeContainer(appName, result)
+                } else {
+                    result.error("INVALID_ARGUMENTS", "App name is required", null)
                 }
             }
             "openSettings" -> {
@@ -122,38 +146,15 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
             "startVoiceRecognition" -> {
                 startVoiceRecognition(result)
             }
+            "startAlwaysListen" -> {
+                startAlwaysListen(result)
+            }
+            "stopAlwaysListen" -> {
+                stopAlwaysListen(result)
+            }
             else -> {
                 result.notImplemented()
             }
-        }
-    }
-    
-    private fun launchApp(packageName: String, result: Result) {
-        try {
-            val packageManager = activity.packageManager
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                activity.startActivity(launchIntent)
-                result.success("App launched successfully")
-            } else {
-                // Try alternative method for system apps
-                val intent = Intent().apply {
-                    component = ComponentName.unflattenFromString(packageName)
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                
-                try {
-                    activity.startActivity(intent)
-                    result.success("System app launched successfully")
-                } catch (e: Exception) {
-                    result.error("APP_NOT_FOUND", "App not installed or cannot be launched: $packageName", null)
-                }
-            }
-        } catch (e: Exception) {
-            result.error("LAUNCH_ERROR", "Failed to launch app: ${e.message}", null)
         }
     }
     
@@ -251,6 +252,19 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
     }
     
     private fun closeApp(packageName: String, result: Result) {
+        // 🎭 TONY STARK MAGIC: Try to close container first (invisible to user!)
+        val appName = getAppNameFromPackage(packageName)
+        if (ContainerActivity.isContainerActive(appName)) {
+            val success = ContainerActivity.closeContainer(appName)
+            if (success) {
+                // Bring JARVIS back to foreground for seamless experience
+                bringJarvisToForeground()
+                result.success("✅ Closed $appName (container closed seamlessly)")
+                return
+            }
+        }
+        
+        // Fallback: Handle real apps (existing logic)
         try {
             val activityManager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             
@@ -279,16 +293,12 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
                                     addCategory(Intent.CATEGORY_LAUNCHER)
                                 }
                                 
-                                                                 // Launch the app briefly
+                                // Launch the app briefly
                                 activity.startActivity(intent)
                                 
                                 // Immediately bring JARVIS back to foreground
                                 Thread.sleep(100)
-                                val jarvisIntent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
-                                jarvisIntent?.let { jarvisLaunch ->
-                                    jarvisLaunch.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                    activity.startActivity(jarvisLaunch)
-                                }
+                                bringJarvisToForeground()
                                 
                                 result.success("✅ Closed $packageName (minimized to background)")
                                 return
@@ -310,11 +320,7 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
                     
                     // Immediately bring JARVIS back to foreground (this backgrounds the target app)
                     Thread.sleep(100)
-                    val jarvisIntent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
-                    jarvisIntent?.let { jarvisLaunch ->
-                        jarvisLaunch.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        activity.startActivity(jarvisLaunch)
-                    }
+                    bringJarvisToForeground()
                     
                     result.success("✅ Closed $packageName (sent to background)")
                 } else {
@@ -739,10 +745,288 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
         }
     }
 
+    private fun startAlwaysListen(result: Result) {
+        if (isAlwaysListening) {
+            result.success("Already listening")
+            return
+        }
+        
+        try {
+            // Check for audio permissions
+            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+                result.error("PERMISSION_DENIED", "Audio recording permission required", null)
+                return
+            }
+            
+            // Check if we have background audio access (Android 10+)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // Check if "Allow all the time" is enabled
+                val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                
+                // Show user instructions for enabling "Allow all the time"
+                activity.runOnUiThread {
+                    android.app.AlertDialog.Builder(activity)
+                        .setTitle("🎧 Enable Always Listening")
+                        .setMessage("For JARVIS to listen while other apps are open:\n\n" +
+                                   "📱 Steps:\n" +
+                                   "1. Tap 'Open Settings' below\n" +
+                                   "2. Go to 'Permissions' → 'Microphone'\n" +
+                                   "3. Select 'Allow all the time' ⚡\n" +
+                                   "4. Return to JARVIS and try again\n\n" +
+                                   "⚠️ This is required for background voice recognition!")
+                        .setPositiveButton("Open Settings") { _, _ ->
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            intent.data = android.net.Uri.fromParts("package", activity.packageName, null)
+                            activity.startActivity(intent)
+                        }
+                        .setNegativeButton("Try Anyway") { _, _ ->
+                            // Continue with service start
+                            startListeningService(result)
+                        }
+                        .show()
+                }
+                return
+            }
+            
+            // For older Android versions, start directly
+            startListeningService(result)
+            
+        } catch (e: Exception) {
+            result.error("ALWAYS_LISTEN_ERROR", "Failed to start always listening: ${e.message}", null)
+        }
+    }
+    
+    private fun startListeningService(result: Result) {
+        try {
+            // Set up callback for command processing
+            JarvisListeningService.commandCallback = { command ->
+                println("🎯 JARVIS: Received command from foreground service: '$command'")
+                // Send command back to Flutter for processing
+                methodChannel?.invokeMethod("onAlwaysListenCommand", command)
+            }
+            
+            // Start foreground service
+            val serviceIntent = Intent(activity, JarvisListeningService::class.java).apply {
+                action = "START_LISTENING"
+            }
+            activity.startForegroundService(serviceIntent)
+            
+            isAlwaysListening = true
+            result.success("Always listening started! JARVIS will listen for 'Jarvis...' commands in background.")
+            
+        } catch (e: Exception) {
+            result.error("SERVICE_ERROR", "Failed to start listening service: ${e.message}", null)
+        }
+    }
+    
+    private fun stopAlwaysListen(result: Result) {
+        isAlwaysListening = false
+        
+        // Stop foreground service
+        val serviceIntent = Intent(activity, JarvisListeningService::class.java).apply {
+            action = "STOP_LISTENING"
+        }
+        activity.startForegroundService(serviceIntent)
+        
+        // Clear callback
+        JarvisListeningService.commandCallback = null
+        
+        result.success("Always listening stopped")
+    }
+    
+
+
+    // 🎭 TONY STARK CONTAINER SYSTEM METHODS 🎭
+    
+    /**
+     * Smart launcher that decides whether to use container or real app
+     */
+    private fun launchAppOrContainer(packageName: String, result: Result) {
+        val appName = getAppNameFromPackage(packageName)
+        
+        // Check if this app should use container system
+        if (shouldUseContainer(packageName)) {
+            val appType = getAppTypeFromPackage(packageName)
+            val startUrl = getDefaultUrlForApp(packageName)
+            openContainer(appName, appType, startUrl, result)
+        } else {
+            // Use original app launching for system apps, utilities, etc.
+            launchApp(packageName, result)
+        }
+    }
+    
+    /**
+     * Open an app in our invisible container system
+     */
+    private fun openContainer(appName: String, appType: String, startUrl: String, result: Result) {
+        try {
+            // Check if container is already active
+            if (ContainerActivity.isContainerActive(appName)) {
+                result.success("$appName is already open")
+                return
+            }
+            
+            // Create container intent
+            val containerIntent = Intent(activity, ContainerActivity::class.java).apply {
+                putExtra("APP_NAME", appName)
+                putExtra("APP_TYPE", appType)
+                putExtra("START_URL", startUrl)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            
+            activity.startActivity(containerIntent)
+            result.success("✅ Opened $appName (container launched seamlessly)")
+        } catch (e: Exception) {
+            result.error("CONTAINER_ERROR", "Failed to open container for $appName: ${e.message}", null)
+        }
+    }
+    
+    /**
+     * Close a container
+     */
+    private fun closeContainer(appName: String, result: Result) {
+        Log.d("JARVIS_PLUGIN", "🎭 DEBUG: MobileControlPlugin.closeContainer called with '$appName'")
+        val success = ContainerActivity.closeContainer(appName)
+        Log.d("JARVIS_PLUGIN", "🎭 DEBUG: ContainerActivity.closeContainer returned: $success")
+        
+        if (success) {
+            bringJarvisToForeground()
+            result.success("✅ Closed $appName (container closed)")
+        } else {
+            result.success("$appName was not open in container")
+        }
+    }
+    
+    /**
+     * Determine if app should use container system (Tony Stark intelligence!)
+     */
+    private fun shouldUseContainer(packageName: String): Boolean {
+        val containerApps = setOf(
+            "com.android.chrome",           // Chrome
+            "com.chrome.beta"               // Chrome Beta
+        )
+        
+        return containerApps.contains(packageName)
+    }
+    
+    /**
+     * Get app name from package name
+     */
+    private fun getAppNameFromPackage(packageName: String): String {
+        return when (packageName) {
+            "com.android.chrome", "com.chrome.beta" -> "Chrome"
+            else -> packageName.substringAfterLast(".").replaceFirstChar { it.uppercase() }
+        }
+    }
+    
+    /**
+     * Get app type for container
+     */
+    private fun getAppTypeFromPackage(packageName: String): String {
+        return when (packageName) {
+            "com.android.chrome", "com.chrome.beta", "com.opera.browser", 
+            "org.mozilla.firefox", "com.brave.browser" -> "browser"
+            "com.instagram.android" -> "instagram"
+            "com.youtube.android" -> "youtube"
+            "com.facebook.katana" -> "facebook"
+            "com.twitter.android" -> "twitter"
+            "com.whatsapp" -> "whatsapp"
+            "com.netflix.mediaclient" -> "netflix"
+            "com.amazon.mshop.android.shopping" -> "amazon"
+            "com.spotify.music" -> "spotify"
+            else -> "browser"
+        }
+    }
+    
+    /**
+     * Get default URL for container apps
+     */
+    private fun getDefaultUrlForApp(packageName: String): String {
+        return when (packageName) {
+            "com.android.chrome", "com.chrome.beta", "com.opera.browser",
+            "org.mozilla.firefox", "com.brave.browser" -> "https://www.google.com"
+            "com.instagram.android" -> "https://www.instagram.com"
+            "com.youtube.android" -> "https://www.youtube.com"
+            "com.facebook.katana" -> "https://www.facebook.com"
+            "com.twitter.android" -> "https://twitter.com"
+            "com.whatsapp" -> "https://web.whatsapp.com"
+            "com.netflix.mediaclient" -> "https://www.netflix.com"
+            "com.amazon.mshop.android.shopping" -> "https://www.amazon.com"
+            "com.spotify.music" -> "https://open.spotify.com"
+            "com.google.android.apps.maps" -> "https://maps.google.com"
+            "com.reddit.frontpage" -> "https://www.reddit.com"
+            "com.pinterest" -> "https://www.pinterest.com"
+            "com.linkedin.android" -> "https://www.linkedin.com"
+            "com.microsoft.office.outlook" -> "https://outlook.live.com"
+            else -> "https://www.google.com"
+        }
+    }
+    
+    /**
+     * Bring JARVIS back to foreground (seamless experience)
+     */
+    private fun bringJarvisToForeground() {
+        try {
+            val jarvisIntent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+            jarvisIntent?.let { jarvisLaunch ->
+                jarvisLaunch.flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                                   Intent.FLAG_ACTIVITY_SINGLE_TOP or 
+                                   Intent.FLAG_ACTIVITY_CLEAR_TOP
+                activity.startActivity(jarvisLaunch)
+            }
+        } catch (e: Exception) {
+            // Silent fail - not critical
+        }
+    }
+    
+    /**
+     * Original app launcher (for non-container apps)
+     */
+    private fun launchApp(packageName: String, result: Result) {
+        try {
+            val packageManager = activity.packageManager
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                activity.startActivity(launchIntent)
+                result.success("App launched successfully")
+            } else {
+                // Try alternative method for system apps
+                val intent = Intent().apply {
+                    component = ComponentName.unflattenFromString(packageName)
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                
+                try {
+                    activity.startActivity(intent)
+                    result.success("System app launched successfully")
+                } catch (e: Exception) {
+                    result.error("APP_NOT_FOUND", "App not installed or cannot be launched: $packageName", null)
+                }
+            }
+        } catch (e: Exception) {
+            result.error("LAUNCH_ERROR", "Failed to launch app: ${e.message}", null)
+        }
+    }
+
     // Clean up resources
     fun destroy() {
+        isAlwaysListening = false
         speechRecognizer?.destroy()
         speechRecognizer = null
         speechRecognitionResult = null
+        
+        // Stop foreground service if running
+        if (JarvisListeningService.isServiceRunning) {
+            val serviceIntent = Intent(activity, JarvisListeningService::class.java).apply {
+                action = "STOP_LISTENING"
+            }
+            activity.startForegroundService(serviceIntent)
+        }
+        JarvisListeningService.commandCallback = null
     }
 } 
