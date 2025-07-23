@@ -27,6 +27,7 @@ import android.speech.SpeechRecognizer
 import android.speech.RecognitionListener
 import android.os.Bundle
 import java.util.Locale
+import android.telephony.SmsManager
 
 class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
     
@@ -107,6 +108,15 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
                     callContactByName(contactName, result)
                 } else {
                     result.error("INVALID_ARGUMENTS", "Contact name is required", null)
+                }
+            }
+            "sendSMSDirect" -> {
+                val phoneNumber = call.argument<String>("phoneNumber")
+                val message = call.argument<String>("message")
+                if (phoneNumber != null && message != null) {
+                    sendSMSDirect(phoneNumber, message, result)
+                } else {
+                    result.error("INVALID_ARGUMENTS", "Phone number and message are required", null)
                 }
             }
             "startVoiceRecognition" -> {
@@ -591,6 +601,32 @@ class MobileControlPlugin(private val activity: Activity) : MethodCallHandler {
             }
         } catch (e: Exception) {
             result.error("CALL_ERROR", "Failed to call contact: ${e.message}", null)
+        }
+    }
+
+    private fun sendSMSDirect(phoneNumber: String, message: String, result: Result) {
+        try {
+            // Check if we have SMS permission
+            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.SEND_SMS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                result.error("PERMISSION_DENIED", "SMS permission not granted", null)
+                return
+            }
+            
+            // Use SmsManager to send SMS directly
+            val smsManager = android.telephony.SmsManager.getDefault()
+            
+            // Split long messages if needed
+            val parts = smsManager.divideMessage(message)
+            if (parts.size == 1) {
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            } else {
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+            }
+            
+            result.success("SMS sent to $phoneNumber: \"$message\"")
+        } catch (e: Exception) {
+            result.error("SMS_ERROR", "Failed to send SMS: ${e.message}", null)
         }
     }
 
