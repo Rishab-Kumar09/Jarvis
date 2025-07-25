@@ -330,22 +330,27 @@ class Jarvis:
             if self.system_info == "Windows":
                 try:
                     import win32gui
-                windows = []
-                def enum_callback(hwnd, results):
-                    if win32gui.IsWindowVisible(hwnd):
-                        window_text = win32gui.GetWindowText(hwnd)
-                        if window_text and len(window_text) > 3:
-                            windows.append({'hwnd': hwnd, 'title': window_text})
-                            return len(windows) < 10  # Limit to 10 windows for speed
-                
-                win32gui.EnumWindows(enum_callback, windows)
-                self.active_windows = {w['title']: w['hwnd'] for w in windows}
-                self.system_index['windows_tracked'] = len(windows)
-                
-            except Exception as e:
+                    windows = []
+                    def enum_callback(hwnd, results):
+                        if win32gui.IsWindowVisible(hwnd):
+                            window_text = win32gui.GetWindowText(hwnd)
+                            if window_text and len(window_text) > 3:
+                                windows.append({'hwnd': hwnd, 'title': window_text})
+                                return len(windows) < 10  # Limit to 10 windows for speed
+                    
+                    win32gui.EnumWindows(enum_callback, windows)
+                    self.active_windows = {w['title']: w['hwnd'] for w in windows}
+                    self.system_index['windows_tracked'] = len(windows)
+                    
+                except ImportError:
+                    windows = []
+                    self.active_windows = {}
+                except Exception as e:
                     print(f"Quick window scan failed: {str(e)}")
+                    self.active_windows = {}
+            else:
                 self.active_windows = {}
-            
+                
         except Exception as e:
             print(f"Quick window scan error: {str(e)}")
             self.active_windows = {}
@@ -358,7 +363,7 @@ class Jarvis:
             time.sleep(0.1)  # Minimal delay
             print("✅ JARVIS: Lightweight mode active!")
                 
-            except Exception as e:
+        except Exception as e:
             print(f"⚠️ Background scan minimal error: {str(e)}")
             
     def light_system_scan(self):
@@ -526,10 +531,10 @@ class Jarvis:
             if self.system_info == "Windows":
                 try:
                     import win32gui
-                fg_hwnd = win32gui.GetForegroundWindow()
+                    fg_hwnd = win32gui.GetForegroundWindow()
                     current_window = win32gui.GetWindowText(fg_hwnd)
                     response += f"📱 Active Application: {current_window}\n"
-            except:
+                except:
                     response += f"📱 Active Application: Unable to detect\n"
             
             # Get basic system info
@@ -563,8 +568,6 @@ class Jarvis:
     def comprehensive_search_everything(self, query):
         """COMPREHENSIVE SEARCH for 'search everything' command with visual results"""
         try:
-            import difflib
-            
             # FOCUSED search directories - avoid system hang
             search_dirs = [
                 # Priority directories ONLY (fast search)
@@ -577,7 +580,6 @@ class Jarvis:
             ]
             
             found_items = []
-            all_items = []
             query_lower = query.lower()
             
             print(f"🔍 COMPREHENSIVE SEARCH: Scanning entire system for '{query}'...")
@@ -588,14 +590,13 @@ class Jarvis:
                     
                 try:
                     # Fast search limits to prevent hanging
-                    max_items = 50  # Reduced for speed
-                    max_depth = 2   # Shallow search only
+                    max_items = 100  # Reasonable limit for speed
                     
                     # Search all items
                     for item in os.listdir(search_dir)[:max_items]:
                         item_path = os.path.join(search_dir, item)
                         
-                        # Check files
+                        # Check files - substring matching for "krishna" will find it anywhere
                         if os.path.isfile(item_path) and query_lower in item.lower():
                             try:
                                 stat_info = os.stat(item_path)
@@ -612,7 +613,7 @@ class Jarvis:
                             except:
                                 continue
                         
-                        # Check folders
+                        # Check folders - substring matching for "krishna" will find it anywhere
                         elif os.path.isdir(item_path) and query_lower in item.lower():
                             try:
                                 stat_info = os.stat(item_path)
@@ -627,11 +628,6 @@ class Jarvis:
                                 })
                             except:
                                 continue
-                                
-                        # Store all items for fuzzy search
-                        if os.path.exists(item_path):
-                            item_type = 'folder' if os.path.isdir(item_path) else 'file'
-                            all_items.append((item, item_path, item_type))
                         
                         # Limit results for performance
                         if len(found_items) >= 50:
@@ -639,11 +635,10 @@ class Jarvis:
                             
                 except (PermissionError, OSError):
                     continue
-        except Exception as e:
+                except Exception as e:
                     print(f"Error searching {search_dir}: {e}")
                     continue
             
-            # FUZZY MATCHING DISABLED - causes hanging issues
             print(f"✅ Search complete - found {len(found_items)} items")
             
             # Generate comprehensive results with web interface
@@ -3801,9 +3796,10 @@ class WebJarvis:
 
         @self.app.route('/api/open-file')
         def api_open_file_get():
-            """Open a file via GET request (mobile-friendly)"""
+            """🎯 Tony Stark Smart File Opener - Opens files where you are!"""
             try:
                 item_path = request.args.get('path')
+                open_on = request.args.get('on', 'auto')  # 'mobile', 'pc', 'auto'
                 
                 if not item_path:
                     return f"""
@@ -3832,27 +3828,136 @@ class WebJarvis:
                     </html>
                     """, 404
                 
-                # Open the file/folder
-                os.startfile(decoded_path)
                 filename = os.path.basename(decoded_path)
+                file_ext = os.path.splitext(filename)[1].lower()
                 
-                return f"""
-                <html>
-                    <head>
-                        <title>JARVIS File Opener</title>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    </head>
-                    <body style="font-family: Arial; background: linear-gradient(135deg, #0c1445, #1a237e); color: white; text-align: center; padding: 50px; min-height: 100vh;">
-                        <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px);">
-                            <h2 style="color: #00e5ff;">✅ File Opened Successfully!</h2>
-                            <p style="font-size: 1.2em; margin: 20px 0;">{filename}</p>
-                            <p style="opacity: 0.8;">📂 {decoded_path}</p>
-                            <br>
-                            <a href="javascript:history.back()" style="background: #00e5ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-size: 1.1em;">← Back to JARVIS</a>
-                        </div>
-                    </body>
-                </html>
-                """
+                # 🎯 Tony Stark Intelligence: Detect if request is from mobile
+                user_agent = request.headers.get('User-Agent', '').lower()
+                is_mobile = any(mobile_indicator in user_agent for mobile_indicator in 
+                               ['mobile', 'android', 'iphone', 'ipad', 'flutter'])
+                
+                if open_on == 'mobile' or (open_on == 'auto' and is_mobile):
+                    # 📱 MOBILE MODE: Open file on mobile device
+                    print(f"📱 MOBILE FILE ACCESS: {filename} (detected: {is_mobile})")
+                    
+                    if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
+                        # Image files - display directly on mobile
+                        try:
+                            import base64
+                            with open(decoded_path, 'rb') as f:
+                                image_data = base64.b64encode(f.read()).decode('utf-8')
+                            mime_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else f'image/{file_ext[1:]}'
+                            
+                            return f"""
+                            <html>
+                                <head>
+                                    <title>JARVIS Mobile Viewer</title>
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <style>
+                                        body {{ font-family: Arial; background: linear-gradient(135deg, #0c1445, #1a237e); color: white; margin: 0; padding: 20px; min-height: 100vh; }}
+                                        .container {{ text-align: center; }}
+                                        .image {{ max-width: 100%; height: auto; border-radius: 10px; margin: 20px 0; box-shadow: 0 4px 15px rgba(0,229,255,0.3); }}
+                                        .back-btn {{ background: #00e5ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; margin-top: 20px; }}
+                                        .info {{ background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin: 20px 0; }}
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="container">
+                                        <div class="info">
+                                            <h2 style="color: #00e5ff;">📱 {filename}</h2>
+                                            <p style="opacity: 0.8;">Mobile View</p>
+                                        </div>
+                                        <img src="data:{mime_type};base64,{image_data}" class="image" alt="{filename}">
+                                        <br>
+                                        <a href="javascript:history.back()" class="back-btn">← Back to JARVIS</a>
+                                    </div>
+                                </body>
+                            </html>
+                            """
+                        except:
+                            pass
+                    elif file_ext in ['.txt', '.md', '.log', '.csv', '.json']:
+                        # Text files - display content on mobile
+                        try:
+                            with open(decoded_path, 'r', encoding='utf-8') as f:
+                                content = f.read()[:10000]  # Limit content size
+                            # Fix f-string backslash issue by doing replacement separately
+                            content_html = content.replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+                            return f"""
+                            <html>
+                                <head>
+                                    <title>JARVIS Mobile Viewer</title>
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <style>
+                                        body {{ font-family: 'Courier New', monospace; background: linear-gradient(135deg, #0c1445, #1a237e); color: white; margin: 0; padding: 20px; }}
+                                        .header {{ text-align: center; margin-bottom: 20px; }}
+                                        .content {{ background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; text-align: left; overflow-x: auto; line-height: 1.5; }}
+                                        .back-btn {{ background: #00e5ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; margin: 20px auto; }}
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="header">
+                                        <h2 style="color: #00e5ff;">📱 {filename}</h2>
+                                        <p style="opacity: 0.8;">Mobile Text Viewer</p>
+                                    </div>
+                                    <div class="content">{content_html}</div>
+                                    <center><a href="javascript:history.back()" class="back-btn">← Back to JARVIS</a></center>
+                                </body>
+                            </html>
+                            """
+                        except:
+                            pass
+                    
+                    # For other files, provide smart options
+                    return f"""
+                    <html>
+                        <head>
+                            <title>JARVIS Mobile File Handler</title>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <style>
+                                body {{ font-family: Arial; background: linear-gradient(135deg, #0c1445, #1a237e); color: white; text-align: center; padding: 30px; min-height: 100vh; }}
+                                .file-info {{ background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; margin: 20px 0; backdrop-filter: blur(10px); }}
+                                .btn {{ background: #00e5ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; margin: 10px; display: inline-block; }}
+                                .btn:hover {{ background: #0099cc; }}
+                                .file-icon {{ font-size: 3em; margin: 20px 0; }}
+                            </style>
+                        </head>
+                        <body>
+                            <div class="file-info">
+                                <div class="file-icon">📱</div>
+                                <h2 style="color: #00e5ff;">Smart File Access</h2>
+                                <p style="font-size: 1.2em; margin: 15px 0;">{filename}</p>
+                                <p style="opacity: 0.7; font-size: 0.9em;">📂 {decoded_path}</p>
+                                <br>
+                                <p>Choose how to open this file:</p>
+                                <a href="/api/open-file?path={urllib.parse.quote(decoded_path)}&on=pc" class="btn">🖥️ Open on PC</a>
+                                <a href="javascript:history.back()" class="btn">← Back to JARVIS</a>
+                            </div>
+                        </body>
+                    </html>
+                    """
+                else:
+                    # 🖥️ PC MODE: Open file on PC (original behavior)
+                    print(f"🖥️ PC FILE ACCESS: {filename}")
+                    os.startfile(decoded_path)
+                    
+                    return f"""
+                    <html>
+                        <head>
+                            <title>JARVIS File Opener</title>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        </head>
+                        <body style="font-family: Arial; background: linear-gradient(135deg, #0c1445, #1a237e); color: white; text-align: center; padding: 50px; min-height: 100vh;">
+                            <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px);">
+                                <h2 style="color: #00e5ff;">✅ File Opened on PC!</h2>
+                                <p style="font-size: 1.2em; margin: 20px 0;">{filename}</p>
+                                <p style="opacity: 0.8;">📂 {decoded_path}</p>
+                                <br>
+                                <a href="javascript:history.back()" style="background: #00e5ff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-size: 1.1em;">← Back to JARVIS</a>
+                            </div>
+                        </body>
+                    </html>
+                    """
                 
             except Exception as e:
                 return f"""
@@ -4119,7 +4224,7 @@ class WebJarvis:
             print(f"   2️⃣  Go to Port Forwarding settings")
             print(f"   3️⃣  Forward External Port 5000 → Internal {local_ip}:5000")
             print(f"   4️⃣  Save settings and test from outside network")
-            print(f"   🔒 Security: Consider changing port 5000 to something else")
+            print(f"   🔒 Security: Consider changing the default port for security")
         else:
             print(f"   ❌ Unable to detect public IP")
             print(f"   🔍 Check your internet connection")
