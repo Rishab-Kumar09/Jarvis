@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Search Results</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0c1445, #1a237e);
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .search-query {
+            font-size: 2em;
+            color: #00e5ff;
+            margin-bottom: 10px;
+        }
+        
+        .search-stats {
+            font-size: 1.2em;
+            opacity: 0.8;
+        }
+        
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        
+        .result-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            backdrop-filter: blur(10px);
+        }
+        
+        .result-item:hover {
+            transform: translateY(-5px);
+            background: rgba(0, 229, 255, 0.2);
+            border-color: #00e5ff;
+            box-shadow: 0 10px 30px rgba(0, 229, 255, 0.3);
+        }
+        
+        .result-icon {
+            font-size: 4em;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .result-name {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            word-break: break-word;
+            color: #ffffff;
+        }
+        
+        .result-path {
+            font-size: 0.8em;
+            opacity: 0.7;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        
+        .result-details {
+            font-size: 0.9em;
+            opacity: 0.8;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        
+        .match-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 1.2em;
+        }
+        
+        .result-item {
+            position: relative;
+        }
+        
+        .exact-match {
+            border-left: 4px solid #4caf50;
+        }
+        
+        .fuzzy-match {
+            border-left: 4px solid #ff9800;
+        }
+        
+        .loading {
+            text-align: center;
+            font-size: 1.5em;
+            margin-top: 50px;
+        }
+        
+        .error {
+            text-align: center;
+            font-size: 1.2em;
+            color: #ff5252;
+            margin-top: 50px;
+        }
+        
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid #00e5ff;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 229, 255, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+        
+        .back-button:hover {
+            background: rgba(0, 229, 255, 1);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <button class="back-button" onclick="history.back()">← Back to JARVIS</button>
+    
+    <div class="header">
+        <div class="search-query" id="searchQuery">Loading...</div>
+        <div class="search-stats" id="searchStats">Preparing search results...</div>
+    </div>
+    
+    <div id="loadingDiv" class="loading">
+        <div class="spinner"></div>
+        <div>Loading search results...</div>
+    </div>
+    
+    <div id="errorDiv" class="error" style="display: none;"></div>
+    
+    <div id="resultsGrid" class="results-grid" style="display: none;"></div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const cacheKey = urlParams.get('key');
+        
+        if (!cacheKey) {
+            showError('No search results key provided');
+        } else {
+            loadSearchResults(cacheKey);
+        }
+        
+        function loadSearchResults(key) {
+            fetch(`/api/search-results?key=${key}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayResults(data);
+                    } else {
+                        showError(data.error || 'Failed to load search results');
+                    }
+                })
+                .catch(error => {
+                    showError('Network error: ' + error.message);
+                });
+        }
+        
+        function displayResults(data) {
+            document.getElementById('loadingDiv').style.display = 'none';
+            
+            const query = data.query;
+            const results = data.results;
+            
+            // Update header
+            document.getElementById('searchQuery').textContent = `"${query}"`;
+            
+            const fileCount = results.filter(r => r.type === 'file').length;
+            const folderCount = results.filter(r => r.type === 'folder').length;
+            const exactCount = results.filter(r => r.match_type === 'exact').length;
+            const fuzzyCount = results.filter(r => r.match_type === 'fuzzy').length;
+            
+            document.getElementById('searchStats').innerHTML = 
+                `📄 ${fileCount} files, 📁 ${folderCount} folders<br>📍 ${exactCount} exact, 🎤 ${fuzzyCount} voice-corrected`;
+            
+            // Display results
+            const grid = document.getElementById('resultsGrid');
+            grid.innerHTML = '';
+            
+            results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = `result-item ${result.match_type === 'exact' ? 'exact-match' : 'fuzzy-match'}`;
+                
+                item.innerHTML = `
+                    <div class="match-indicator">${result.match_type === 'exact' ? '📍' : '🎤'}</div>
+                    <div class="result-icon">${result.icon}</div>
+                    <div class="result-name">${result.name}</div>
+                    <div class="result-path">${result.path}</div>
+                    <div class="result-details">
+                        <span>${result.size}</span>
+                        <span>${result.modified}</span>
+                    </div>
+                `;
+                
+                item.addEventListener('click', () => openItem(result.path, result.name));
+                grid.appendChild(item);
+            });
+            
+            grid.style.display = 'grid';
+        }
+        
+        function openItem(path, name) {
+            fetch('/api/open-item', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ path: path })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Visual feedback
+                    showNotification(`Opened: ${name}`, 'success');
+                } else {
+                    showNotification(data.error || 'Failed to open item', 'error');
+                }
+            })
+            .catch(error => {
+                showNotification('Network error: ' + error.message, 'error');
+            });
+        }
+        
+        function showError(message) {
+            document.getElementById('loadingDiv').style.display = 'none';
+            document.getElementById('errorDiv').textContent = message;
+            document.getElementById('errorDiv').style.display = 'block';
+        }
+        
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: ${type === 'success' ? '#4caf50' : '#f44336'};
+                color: white;
+                padding: 15px 30px;
+                border-radius: 25px;
+                font-size: 1.1em;
+                z-index: 1000;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html> 
