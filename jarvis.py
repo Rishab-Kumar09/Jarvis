@@ -3793,6 +3793,64 @@ class WebJarvis:
                 
             except Exception as e:
                 return jsonify({'error': f'Open item error: {str(e)}'}), 500
+        
+        @self.app.route('/api/download-file', methods=['POST'])
+        def api_download_file():
+            """🎯 ANDROID NATIVE: Download file content for Android Intent system"""
+            try:
+                data = request.get_json()
+                file_path = data.get('file_path')
+                
+                if not file_path:
+                    return jsonify({'error': 'No file path provided'}), 400
+                
+                # Decode URL-encoded path if needed
+                import urllib.parse
+                decoded_path = urllib.parse.unquote(file_path)
+                
+                if not os.path.exists(decoded_path):
+                    return jsonify({'error': f'File not found: {decoded_path}'}), 404
+                
+                # Check if it's a file (not a directory)
+                if not os.path.isfile(decoded_path):
+                    return jsonify({'error': f'Path is not a file: {decoded_path}'}), 400
+                
+                try:
+                    # Read file content
+                    with open(decoded_path, 'rb') as f:
+                        file_content = f.read()
+                    
+                    # Get MIME type
+                    import mimetypes
+                    mime_type, _ = mimetypes.guess_type(decoded_path)
+                    if not mime_type:
+                        mime_type = 'application/octet-stream'
+                    
+                    # Get filename
+                    filename = os.path.basename(decoded_path)
+                    
+                    print(f"📱 ANDROID DOWNLOAD: {filename} ({len(file_content)} bytes, {mime_type})")
+                    
+                    # Return file content with proper headers
+                    from flask import send_file
+                    import io
+                    file_obj = io.BytesIO(file_content)
+                    file_obj.seek(0)
+                    
+                    return send_file(
+                        file_obj,
+                        as_attachment=True,
+                        download_name=filename,
+                        mimetype=mime_type
+                    )
+                    
+                except PermissionError:
+                    return jsonify({'error': f'Permission denied accessing file: {filename}'}), 403
+                except Exception as read_error:
+                    return jsonify({'error': f'Error reading file: {str(read_error)}'}), 500
+                
+            except Exception as e:
+                return jsonify({'error': f'Download file error: {str(e)}'}), 500
 
         @self.app.route('/api/open-file')
         def api_open_file_get():

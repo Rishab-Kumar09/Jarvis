@@ -13,27 +13,27 @@ dependencies:
     sdk: flutter
   
   # UI and Material Design
-  cupertino_icons: ^1.0.2
+  cupertino_icons: ^1.0.8
   
   # HTTP and WebSocket communication
-  http: ^1.1.0
-  web_socket_channel: ^2.4.0
+  http: ^1.2.1
+  web_socket_channel: ^2.4.5
   
   # Voice solution: Built-in keyboard voice input + TTS output (no problematic packages)
-  flutter_tts: ^3.8.3
+  flutter_tts: ^4.0.2
   
   # Audio streaming and playback
   audioplayers: ^6.0.0
   
   # URL launching for mobile control system
-  url_launcher: ^6.1.12
+  url_launcher: ^6.3.0
   
   # State management
-  provider: ^6.1.1
+  provider: ^6.1.2
   
   # UI enhancements
   animated_text_kit: ^4.2.2
-  flutter_animate: ^4.3.0
+  flutter_animate: ^4.5.0
   glass_kit: ^3.0.0
   
   # Date formatting
@@ -41,8 +41,16 @@ dependencies:
   local_auth: ^2.3.0
   
   # JARVIS Brain dependencies
-  shared_preferences: ^2.2.2
-  path_provider: ^2.1.1
+  shared_preferences: ^2.2.3
+  path_provider: ^2.1.3
+  
+  # 🎯 ANDROID NATIVE FILE HANDLING
+  file_picker: ^8.0.6         # Native Android file picker
+  open_filex: ^4.4.0          # Native Android file opening
+  path: ^1.9.0                # Path manipulation utilities
+  mime: ^1.0.5                # MIME type detection
+  permission_handler: ^11.3.1 # Android permissions
+  device_info_plus: ^10.1.1   # Platform detection
 
 dev_dependencies:
   flutter_test:
