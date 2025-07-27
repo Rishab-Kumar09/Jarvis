@@ -928,7 +928,7 @@ class Jarvis:
         """Generate search results with clickable web interface"""
         try:
             if not found_items:
-                return f"🔍 No items found for '{query}' in comprehensive search"
+                return f"No files found for '{query}'"
             
             # Sort results (exact matches first, then by type, then by date)
             found_items.sort(key=lambda x: (
@@ -937,17 +937,7 @@ class Jarvis:
                 -os.path.getmtime(x['path']) if os.path.exists(x['path']) else 0
             ))
             
-            # Generate text response
-            exact_count = len([f for f in found_items if f.get('match_type') == 'exact'])
-            fuzzy_count = len([f for f in found_items if f.get('match_type') == 'fuzzy'])
-            file_count = len([f for f in found_items if f.get('type') == 'file'])
-            folder_count = len([f for f in found_items if f.get('type') == 'folder'])
-            
-            response = f"🌟 COMPREHENSIVE SEARCH RESULTS for '{query}':\n"
-            response += f"   📄 {file_count} files, 📁 {folder_count} folders\n"
-            response += f"   📍 {exact_count} exact matches, 🎤 {fuzzy_count} voice-corrected\n\n"
-            
-            # Create web interface data
+            # Create web interface data (ESSENTIAL FOR FILEBOX)
             web_results = []
             for item in found_items[:50]:  # Limit to 50 for web display
                 # Get file icon based on extension
@@ -975,7 +965,7 @@ class Jarvis:
                     'match_type': item['match_type']
                 })
             
-            # Store results for web interface access
+            # Store results for web interface access (ESSENTIAL FOR FILEBOX)
             if not hasattr(self, 'search_results_cache'):
                 self.search_results_cache = {}
             
@@ -987,38 +977,14 @@ class Jarvis:
                 'timestamp': time.time()
             }
             
-            # Add top results to text response
-            for i, item in enumerate(found_items[:10], 1):
-                type_icon = "📁" if item.get('type') == 'folder' else "📄"
-                match_indicator = "📍" if item.get('match_type') == 'exact' else "🎤"
-                
-                if item.get('type') == 'folder':
-                    size_str = "Folder"
-                else:
-                    size = item.get('size', 0)
-                    if size < 1024:
-                        size_str = f"{size}B"
-                    elif size < 1024*1024:
-                        size_str = f"{size//1024}KB"
-                    else:
-                        size_str = f"{size//(1024*1024)}MB"
-                
-                response += f"{i:2d}. {match_indicator} {type_icon} {item['name']}\n"
-                response += f"     📂 {item['path']}\n"
-                response += f"     📊 {size_str} • {item['modified']}\n\n"
-            
-            if len(found_items) > 10:
-                response += f"... and {len(found_items) - 10} more items.\n\n"
-            
-            response += f"🖥️ **VISUAL RESULTS**: Check the web interface for clickable icons and large view!\n"
-            response += f"📱 Open your JARVIS mobile app to see visual search results with large icons.\n"
-            response += f"🔗 Visual Results: http://localhost:5000/search-results?key={cache_key}\n"
-            response += f"💾 Results cached as: {cache_key}"
+            # Simple response with filebox trigger
+            response = f"Found {len(found_items)} files for '{query}'\n"
+            response += f"🔗 Visual Results: http://localhost:5000/search-results?key={cache_key}"
             
             return response
             
         except Exception as e:
-            return f"❌ Error generating search UI: {str(e)}"
+            return f"Error searching files: {str(e)}"
 
     def get_file_icon(self, extension, file_type):
         """Get appropriate icon for file type"""
