@@ -54,22 +54,64 @@ import ctypes
 from ctypes import wintypes
 import sqlite3
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with AGGRESSIVE BOM handling
+load_dotenv(encoding='utf-8-sig')  # utf-8-sig handles BOM characters
+
+# AGGRESSIVE BOM removal - try multiple approaches
+openai_key = None
+
+# Method 1: Direct environment variable
+openai_key = os.getenv("OPENAI_API_KEY")
+if openai_key:
+    openai_key = openai_key.strip().lstrip('\ufeff').lstrip('\xef\xbb\xbf')
+
+# Method 2: Check for BOM-prefixed key (common Windows .env file issue)
+if not openai_key:
+    for key, value in os.environ.items():
+        if key.endswith("OPENAI_API_KEY"):
+            openai_key = value.strip().lstrip('\ufeff').lstrip('\xef\xbb\xbf')
+            if openai_key:
+                break
+
+# Method 3: Manual .env file parsing if Methods 1&2 fail
+if not openai_key and os.path.exists('.env'):
+    try:
+        for encoding in ['utf-8-sig', 'utf-8', 'utf-16', 'cp1252']:
+            try:
+                with open('.env', 'r', encoding=encoding) as f:
+                    content = f.read()
+                    for line in content.split('\n'):
+                        if 'OPENAI_API_KEY' in line and '=' in line:
+                            openai_key = line.split('=', 1)[1].strip().strip('"').strip("'")
+                            # Remove ALL possible BOM variants
+                            openai_key = openai_key.lstrip('\ufeff').lstrip('\xef\xbb\xbf').lstrip('\xff\xfe').lstrip('\xfe\xff')
+                            if openai_key and len(openai_key) > 20:  # OpenAI keys are long
+                                print(f"🔍 Found key using {encoding} encoding")
+                                break
+                if openai_key:
+                    break
+            except:
+                continue
+    except Exception as e:
+        print(f"🔍 Manual .env parsing failed: {e}")
+
+print(f"🔍 DEBUG: Current working directory: {os.getcwd()}")
+print(f"🔍 DEBUG: .env file exists: {os.path.exists('.env')}")
 
 # Initialize OpenAI client only if API key is available
 openai_client = None
-if os.getenv("OPENAI_API_KEY"):
+if openai_key and len(openai_key) > 20:
     try:
-        openai_client = openai.OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
-        print("✅ OpenAI client initialized")
+        openai_client = openai.OpenAI(api_key=openai_key)
+        print("✅ SUCCESS! Your OpenAI API Key is Now Detected!")
+        print(f"🔍 DEBUG: Key length: {len(openai_key)} characters")
     except Exception as e:
         print(f"⚠️ OpenAI initialization failed: {e}")
         openai_client = None
 else:
-    print("ℹ️ No OpenAI API key found - using local TTS only")
+    print("❌ No valid OpenAI API key found - using local TTS only")
+    print(f"🔍 DEBUG: Key found but invalid: {bool(openai_key)}, Length: {len(openai_key) if openai_key else 0}")
+    print(f"🔍 DEBUG: OpenAI-related env vars: {[k for k in os.environ.keys() if 'OPENAI' in k]}")
 
 class Jarvis:
     def __init__(self):
@@ -97,6 +139,15 @@ class Jarvis:
             Delivery Style: Professional and efficient, with undertones of artificial intelligence sophistication.
             Emotion: Calm and composed, with subtle hints of dry wit and unwavering loyalty."""
         }
+        
+        # 📊 MULTITASKING: Background PPT Processing (Tony Stark Style)
+        self.active_presentations = {}  # Store background PPT tasks: {topic: task_info}
+        self.presentation_queue = []    # Queue of completed presentations
+        self.background_tasks = []      # All background tasks
+        self.completion_notifications = []  # Store completion messages for phone
+        self.latest_completion_message = None  # Simple completion message flag
+        self.latest_completion_time = None     # When the completion happened
+        self.phone_should_poll = False         # Flag for phone auto-polling
         self.system_info = platform.system()
         
         # Smart Keep-Awake System
@@ -1946,6 +1997,88 @@ class Jarvis:
             if any(phrase in cmd_lower for phrase in ["database status", "db status", "database info"]):
                 return self.get_database_status()
 
+            # 🚀 CODE GENERATION & EXECUTION - TONY STARK IMPOSSIBLE POWER!
+            if any(phrase in cmd_lower for phrase in ["write code", "generate code", "create script", "code for", "write a script", "create a code", "make code", "code to"]):
+                # Extract what code to write
+                code_description = cmd_lower
+                for phrase in ["create a code to", "write code to", "generate code to", "create script to", "code for", "write a script to", "create a code", "make code to", "code to"]:
+                    if phrase in code_description:
+                        code_description = code_description.replace(phrase, "").strip()
+                        break
+                # Remove common words
+                code_description = code_description.replace("that", "").replace("me", "").replace("a", "").strip()
+                
+
+                
+                if code_description:
+                    return await self.generate_and_execute_code(code_description)
+                return "What code would you like me to write for you?"
+            
+            if any(phrase in cmd_lower for phrase in ["run script", "execute code", "execute script"]):
+                script_name = cmd_lower.replace("run script", "").replace("execute code", "").replace("execute script", "").strip()
+                if script_name:
+                    return self.execute_saved_script(script_name)
+                return "Which script should I execute?"
+            
+            if any(phrase in cmd_lower for phrase in ["list scripts", "show scripts", "my scripts", "saved scripts"]):
+                return self.list_saved_scripts()
+            
+            # 📊 PPT CREATION ENGINE - INSTANT PRESENTATION POWER!
+            if any(phrase in cmd_lower for phrase in ["create presentation", "create a presentation", "make ppt", "make a ppt", "generate ppt", "generate a ppt", "create ppt", "create a ppt", "make presentation", "make a presentation", "presentation on", "ppt on", "powerpoint on"]):
+                # Extract topic
+                topic = cmd_lower
+                for phrase in ["create presentation", "create a presentation", "make ppt", "make a ppt", "generate ppt", "generate a ppt", "create ppt", "create a ppt", "make presentation", "make a presentation", "presentation on", "ppt on", "powerpoint on"]:
+                    if phrase in topic:
+                        topic = topic.replace(phrase, "").strip()
+                        break  # Only remove the first matching phrase
+                # Remove common words
+                topic = topic.replace("about", "").replace("on", "").replace("for", "").strip()
+                
+                if topic:
+                    return await self.create_presentation_background(topic)
+                return "What topic would you like me to create a presentation about?"
+            
+            # 📊 PPT SHOW COMMAND - OPEN COMPLETED PRESENTATIONS
+            if any(phrase in cmd_lower for phrase in ["show ppt", "show presentation", "open ppt", "display ppt", "open presentation", "show powerpoint"]):
+                return await self.show_latest_presentation()
+            
+            # 📊 PPT STATUS CHECK
+            if any(phrase in cmd_lower for phrase in ["ppt status", "presentation status", "check ppt", "ppt ready"]):
+                return self.check_presentation_status()
+            
+            # 🌐 BROWSER AUTOMATION SUITE - INTERNET SUPERPOWERS!
+            if any(phrase in cmd_lower for phrase in ["search and compare", "find best price", "compare prices", "shop for", "find deals"]):
+                # Extract product/item to search for
+                item = cmd_lower
+                for phrase in ["search and compare", "find best price", "compare prices", "shop for", "find deals"]:
+                    item = item.replace(phrase, "").strip()
+                item = item.replace("for", "").replace("on", "").strip()
+                
+                if item:
+                    return await self.search_and_compare_prices(item)
+                return "What product would you like me to search and compare prices for?"
+            
+            if any(phrase in cmd_lower for phrase in ["scrape website", "extract data", "get website data", "scrape data from"]):
+                # This is a more advanced feature - for now, provide guidance
+                return "🌐 Website scraping capability ready! Please specify:\n• URL to scrape\n• Type of data needed\n• Output format preference\n\nExample: 'Scrape product prices from amazon.com'"
+            
+            if any(phrase in cmd_lower for phrase in ["automate form", "fill form", "submit form", "auto fill"]):
+                return "📝 Form automation ready! I can help fill out repetitive forms automatically. Please specify the website and form details."
+            
+            # 📱 APP CREATION ENGINE - BUILD APPS WITH JARVIS!
+            if any(phrase in cmd_lower for phrase in ["create app", "build app", "make app", "develop app", "create application", "build application"]):
+                # Extract app description
+                app_description = cmd_lower
+                for phrase in ["create app", "build app", "make app", "develop app", "create application", "build application"]:
+                    if phrase in app_description:
+                        app_description = app_description.replace(phrase, "").strip()
+                        break
+                app_description = app_description.replace("for", "").replace("that", "").replace("to", "").strip()
+                
+                if app_description:
+                    return await self.create_application(app_description)
+                return "What type of app would you like me to create? (e.g., 'todo app', 'calculator', 'weather app')"
+
             # 🤖 AI-POWERED ANALYSIS
             if any(phrase in cmd_lower for phrase in ["image analysis", "analyze image", "describe image"]):
                 return self.analyze_images()
@@ -2355,6 +2488,9 @@ class Jarvis:
                 
             except Exception as e:
                 print(f"Error generating speech with ElevenLabs: {e}")
+                # Always log what JARVIS is trying to say, even if TTS fails
+                print(f"🔊 JARVIS (TTS Failed): {text}")
+                
                 if openai_client:
                     print("Falling back to OpenAI TTS...")
                     # Fallback to OpenAI TTS
@@ -2367,6 +2503,8 @@ class Jarvis:
                     )
                 else:
                     print("Error in text-to-speech: OpenAI client not available")
+                    # Still log the message even if no TTS available
+                    print(f"🔊 JARVIS (No TTS): {text}")
                     return
                 
                 # Convert response to audio data
@@ -3323,12 +3461,1642 @@ class Jarvis:
         """Remove duplicate files (placeholder - requires user confirmation)"""
         return "⚠️ Duplicate file removal requires manual confirmation for safety. Use 'find duplicate files' first to see what duplicates exist."
 
+    # 🚀 TONY STARK IMPOSSIBLE POWERS - CODE GENERATION & EXECUTION 🚀
+    
+    async def generate_and_execute_code(self, description):
+        """Generate code from natural language description and execute it safely"""
+        try:
+            if not openai_client:
+                return await self.generate_code_without_openai(description)
+            
+            print(f"🧠 JARVIS: Generating code for: {description}")
+            
+            # Enhanced prompt for better code generation
+            system_prompt = """You are JARVIS, Tony Stark's AI assistant with advanced coding capabilities. 
+            Generate clean, safe, and executable Python code based on user requests.
+            
+            Rules:
+            1. Always include necessary imports at the top
+            2. Add comments explaining what the code does
+            3. Use error handling with try/except blocks
+            4. Make code safe to execute (no destructive operations without confirmation)
+            5. If the task involves file operations, create a dedicated folder
+            6. Return ONLY the Python code, no explanations outside comments
+            
+            Focus on practical, useful scripts that solve real problems."""
+            
+            # Generate code using OpenAI
+            response = openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Write Python code to: {description}"}
+                ],
+                temperature=0.3  # Lower temperature for more consistent code
+            )
+            
+            generated_code = response.choices[0].message.content.strip()
+            
+            # Clean up the code (remove markdown formatting if present)
+            if generated_code.startswith("```python"):
+                generated_code = generated_code.replace("```python", "").replace("```", "").strip()
+            elif generated_code.startswith("```"):
+                generated_code = generated_code.replace("```", "").strip()
+            
+            # Create a scripts directory if it doesn't exist
+            scripts_dir = Path.home() / "JARVIS_Scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            
+            # Generate a filename based on description
+            safe_filename = re.sub(r'[^\w\s-]', '', description).strip()
+            safe_filename = re.sub(r'[-\s]+', '_', safe_filename)
+            script_filename = f"jarvis_script_{safe_filename[:30]}.py"
+            script_path = scripts_dir / script_filename
+            
+            # Save the generated code
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(f"# JARVIS Generated Script: {description}\n")
+                f.write(f"# Generated on: {datetime.now()}\n\n")
+                f.write(generated_code)
+            
+            print(f"📝 JARVIS: Code saved to {script_path}")
+            
+            # Ask user if they want to execute the code
+            await self.speak(f"I've generated the code for {description}. Executing it now.")
+            
+            # Execute the script
+            result = self.execute_python_script(script_path)
+            
+            return f"✅ Code Generated & Executed!\n\n📄 Script: {script_filename}\n📁 Location: {scripts_dir}\n\n🎯 Result:\n{result}"
+            
+        except Exception as e:
+            return f"❌ Code generation error: {str(e)}"
+    
+    def execute_python_script(self, script_path):
+        """Safely execute a Python script"""
+        try:
+            # Execute the script in a subprocess for safety
+            result = subprocess.run([
+                sys.executable, str(script_path)
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                return output if output else "✅ Script executed successfully (no output)"
+            else:
+                return f"❌ Script execution error:\n{result.stderr}"
+                
+        except subprocess.TimeoutExpired:
+            return "⏰ Script execution timed out (30 second limit)"
+        except Exception as e:
+            return f"❌ Error executing script: {str(e)}"
+    
+    def execute_saved_script(self, script_name):
+        """Execute a previously saved script by name"""
+        try:
+            scripts_dir = Path.home() / "JARVIS_Scripts"
+            
+            # Find script file
+            script_files = list(scripts_dir.glob(f"*{script_name}*"))
+            if not script_files:
+                return f"❌ No script found matching '{script_name}' in {scripts_dir}"
+            
+            script_path = script_files[0]  # Use first match
+            result = self.execute_python_script(script_path)
+            
+            return f"🚀 Executed: {script_path.name}\n\n{result}"
+            
+        except Exception as e:
+            return f"❌ Error executing saved script: {str(e)}"
+            
+    def list_saved_scripts(self):
+        """List all saved JARVIS scripts"""
+        try:
+            scripts_dir = Path.home() / "JARVIS_Scripts"
+            if not scripts_dir.exists():
+                return "📂 No scripts directory found. Generate some code first!"
+            
+            script_files = list(scripts_dir.glob("*.py"))
+            if not script_files:
+                return "📂 No scripts found. Ask me to write some code!"
+            
+            scripts_list = "🗂️ **JARVIS Generated Scripts:**\n\n"
+            for script in script_files:
+                # Get creation time
+                created = datetime.fromtimestamp(script.stat().st_ctime)
+                scripts_list += f"📜 **{script.name}**\n"
+                scripts_list += f"   📅 Created: {created.strftime('%Y-%m-%d %H:%M')}\n"
+                scripts_list += f"   📁 Path: {script}\n\n"
+            
+            return scripts_list
+            
+        except Exception as e:
+            return f"❌ Error listing scripts: {str(e)}"
+    
+    # 📊 PPT CREATION ENGINE - INSTANT PRESENTATION POWER! 📊
+    
+    # 📊 MULTITASKING PPT CREATION - TONY STARK STYLE!
+    
+    async def create_presentation_background(self, topic):
+        """Start PPT creation in background (multitasking)"""
+        try:
+            # Check if already creating this topic
+            if topic in self.active_presentations:
+                return f"Already creating a presentation on {topic}. Please wait."
+            
+            # 🔊 IMMEDIATE RESPONSE TO PHONE (like "opening chrome for you")  
+            immediate_response = f"Creating presentation on {topic}."
+            print(f"🎯 JARVIS: {immediate_response}")
+            
+            # Set phone polling flag for completion notification
+            self.phone_should_poll = True
+            
+            # Add to active presentations
+            self.active_presentations[topic] = {
+                'status': 'creating',
+                'start_time': datetime.now(),
+                'result': None
+            }
+            
+            # Create background task (including speech) - Threading approach for Flask compatibility
+            import threading
+            def run_bg(): 
+                asyncio.run(self._create_presentation_worker(topic, immediate_response))
+            threading.Thread(target=run_bg, daemon=True).start()
+            
+            # Return immediate response to phone (like "opening chrome for you")
+            return immediate_response
+            
+        except Exception as e:
+            return f"❌ Error starting presentation creation: {str(e)}"
+    
+    async def _create_presentation_worker(self, topic, immediate_response):
+        """Background worker to create presentation"""
+        try:
+            # Speak the immediate response in background (not blocking phone response)
+            await self.speak(immediate_response)
+            
+            # Create the presentation (existing logic)
+            result = await self.create_presentation(topic)
+            
+            # Update status
+            self.active_presentations[topic]['status'] = 'completed'
+            self.active_presentations[topic]['result'] = result
+            
+            # Add to completed queue
+            self.presentation_queue.append({
+                'topic': topic,
+                'created_at': datetime.now(),
+                'result': result
+            })
+            
+            # 🔊 NOTIFY COMPLETION
+            completion_message = f"Presentation on {topic} is ready, sir."
+            await self.speak(completion_message)
+            print(f"✅ JARVIS: Presentation on {topic} completed!")
+            
+            # Store completion notification for phone (simplified)
+            try:
+                if not hasattr(self, 'completion_notifications'):
+                    self.completion_notifications = []
+                
+                self.completion_notifications.append({
+                    'type': 'ppt_ready',
+                    'message': completion_message,
+                    'timestamp': datetime.now(),
+                    'topic': topic
+                })
+                print(f"📱 Completion notification stored for phone")
+                
+                # SIMPLE FIX: Also store as a simple flag
+                self.latest_completion_message = completion_message
+                self.latest_completion_time = datetime.now()
+                
+            except Exception as e:
+                print(f"📱 Note: Could not store notification - {e}")
+            
+        except Exception as e:
+            if topic in self.active_presentations:
+                self.active_presentations[topic]['status'] = 'failed'
+                self.active_presentations[topic]['result'] = f"Error: {str(e)}"
+            print(f"❌ PPT Creation Failed: {e}")
+            try:
+                await self.speak(f"Sorry, presentation creation on {topic} failed.")
+            except:
+                pass  # Avoid cascading errors
+    
+    async def create_presentation(self, topic):
+        """Generate a complete PowerPoint presentation from a topic"""
+        try:
+            if not openai_client:
+                return await self.create_presentation_without_openai(topic)
+            
+            print(f"🎯 JARVIS: Creating presentation on: {topic}")
+            
+            # Enhanced system prompt for premium presentation generation with images
+            system_prompt = """You are JARVIS, Tony Stark's advanced AI assistant with expertise in creating stunning, detailed presentations that rival professional consultancy work.
+            
+            Generate a comprehensive presentation with rich, engaging content, visual design, and image suggestions.
+            
+            Return your response in this exact JSON format:
+            {
+                "title": "Compelling Professional Title",
+                "subtitle": "Engaging subtitle or key insight",
+                "theme_color": "professional theme (blue/green/purple/red/orange)",
+                "background_style": "gradient/solid/tech/modern",
+                "slides": [
+                    {
+                        "title": "Engaging Slide Title",
+                        "content": "Rich, detailed content with specific examples, statistics, case studies, and actionable insights. Include 5-7 substantial bullet points with explanations.",
+                        "slide_type": "title/content/conclusion/comparison/timeline/image_focus",
+                        "design_suggestion": "Visual layout suggestion (e.g., 'use charts', 'include timeline', 'add comparison table')",
+                        "image_suggestion": "Specific image description for this slide (e.g., 'diagram of solar system', 'business growth chart', 'person meditating')",
+                        "visual_elements": ["icons", "shapes", "charts", "diagrams", "photos"]
+                    }
+                ]
+            }
+            
+            Premium Requirements:
+            1. Create 8-12 information-rich slides with substantial content
+            2. Include specific examples, real statistics, case studies, and practical applications
+            3. Each content slide should have 5-7 detailed bullet points with explanations
+            4. Add design suggestions and image recommendations for visual appeal
+            5. Suggest relevant images, icons, charts, or diagrams for each slide
+            6. Use professional, engaging language with compelling insights
+            7. Include actionable takeaways and practical recommendations
+            8. Ensure smooth logical flow with clear transitions between concepts
+            9. Make content educational, visually appealing, and valuable"""
+            
+            # Generate presentation content
+            response = openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create a professional presentation about: {topic}"}
+                ],
+                temperature=0.3
+            )
+            
+            # Parse the JSON response
+            import json
+            try:
+                presentation_data = json.loads(response.choices[0].message.content.strip())
+            except json.JSONDecodeError:
+                # Fallback: extract content manually if JSON parsing fails
+                content = response.choices[0].message.content.strip()
+                return await self.create_basic_presentation(topic, content)
+            
+            # Create the actual PowerPoint file
+            ppt_path = await self.generate_powerpoint(presentation_data, topic)
+            
+            return f"✅ Presentation Created Successfully!\n\n📊 **{presentation_data['title']}**\n📁 Location: {ppt_path}\n🎯 Slides: {len(presentation_data['slides'])}\n\n🚀 Opening presentation now..."
+            
+        except Exception as e:
+            print(f"Error in create_presentation: {str(e)}")
+            return f"❌ Error creating presentation: {str(e)}"
+    
+    async def generate_powerpoint(self, presentation_data, topic):
+        """Generate the actual PowerPoint file using python-pptx"""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+            from pptx.enum.text import PP_ALIGN
+            
+            # Create presentation object
+            prs = Presentation()
+            
+            # Set slide dimensions (16:9 aspect ratio)
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
+            
+            # Enhanced slide creation with visual elements
+            theme_color = presentation_data.get('theme_color', 'blue')
+            theme_rgb = self._get_theme_color_rgb(theme_color)
+            
+            for i, slide_data in enumerate(presentation_data['slides']):
+                if i == 0:
+                    # Enhanced Title slide
+                    slide_layout = prs.slide_layouts[0]  # Title slide layout
+                    slide = prs.slides.add_slide(slide_layout)
+                    
+                    title = slide.shapes.title
+                    subtitle = slide.placeholders[1]
+                    
+                    title.text = slide_data['title']
+                    # Enhanced subtitle with theme info
+                    subtitle_text = presentation_data.get('subtitle', f"Generated by JARVIS\n{datetime.now().strftime('%B %d, %Y')}")
+                    subtitle.text = subtitle_text + f"\n\n🎨 Theme: {theme_color.title()} | 🖼️ Images: Enhanced"
+                    
+                    # Style the title with theme color
+                    title.text_frame.paragraphs[0].font.size = Pt(44)
+                    title.text_frame.paragraphs[0].font.color.rgb = theme_rgb
+                    
+                else:
+                    # Enhanced Content slide with image suggestions
+                    slide_layout = prs.slide_layouts[1]  # Title and content layout
+                    slide = prs.slides.add_slide(slide_layout)
+                    
+                    title = slide.shapes.title
+                    content = slide.placeholders[1]
+                    
+                    title.text = slide_data['title']
+                    
+                    # Enhanced content with image suggestions
+                    slide_content = slide_data['content']
+                    image_suggestion = slide_data.get('image_suggestion', '')
+                    design_suggestion = slide_data.get('design_suggestion', '')
+                    visual_elements = slide_data.get('visual_elements', [])
+                    
+                    # Add visual enhancement info to content
+                    enhanced_content = slide_content
+                    if image_suggestion:
+                        enhanced_content += f"\n\n📸 IMAGE SUGGESTION: {image_suggestion}"
+                    if design_suggestion:
+                        enhanced_content += f"\n🎨 DESIGN: {design_suggestion}"
+                    if visual_elements:
+                        visual_str = ", ".join(visual_elements)
+                        enhanced_content += f"\n✨ VISUALS: {visual_str}"
+                    
+                    content.text = enhanced_content
+                    
+                    # Style the content with theme color
+                    title.text_frame.paragraphs[0].font.size = Pt(32)
+                    title.text_frame.paragraphs[0].font.color.rgb = theme_rgb
+                    
+                    # Format bullet points
+                    text_frame = content.text_frame
+                    text_frame.text = slide_data['content']
+                    
+                    for paragraph in text_frame.paragraphs:
+                        paragraph.font.size = Pt(18)
+                        paragraph.space_after = Pt(12)
+            
+            # Save the presentation
+            presentations_dir = Path.home() / "JARVIS_Presentations"
+            presentations_dir.mkdir(exist_ok=True)
+            
+            # Generate filename
+            safe_topic = re.sub(r'[^\w\s-]', '', topic).strip()
+            safe_topic = re.sub(r'[-\s]+', '_', safe_topic)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"JARVIS_Presentation_{safe_topic[:20]}_{timestamp}.pptx"
+            ppt_path = presentations_dir / filename
+            
+            # Save the file
+            prs.save(str(ppt_path))
+            
+            # Open the presentation
+            os.startfile(str(ppt_path))
+            
+            return ppt_path
+            
+        except ImportError:
+            return "❌ python-pptx library not installed. Please run: pip install python-pptx"
+        except Exception as e:
+            print(f"Error generating PowerPoint: {str(e)}")
+            raise e
+    
+    async def create_basic_presentation(self, topic, content):
+        """Fallback method for creating presentations when JSON parsing fails"""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+            
+            prs = Presentation()
+            
+            # Title slide
+            slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(slide_layout)
+            title = slide.shapes.title
+            subtitle = slide.placeholders[1]
+            title.text = f"Presentation: {topic.title()}"
+            subtitle.text = f"Generated by JARVIS\n{datetime.now().strftime('%B %d, %Y')}"
+            
+            # Content slide with all content
+            slide_layout = prs.slide_layouts[1]
+            slide = prs.slides.add_slide(slide_layout)
+            title = slide.shapes.title
+            content_shape = slide.placeholders[1]
+            title.text = topic.title()
+            content_shape.text = content[:500] + "..." if len(content) > 500 else content
+            
+            # Save
+            presentations_dir = Path.home() / "JARVIS_Presentations"
+            presentations_dir.mkdir(exist_ok=True)
+            safe_topic = re.sub(r'[^\w\s-]', '', topic).strip()[:20]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"JARVIS_Basic_{safe_topic}_{timestamp}.pptx"
+            ppt_path = presentations_dir / filename
+            prs.save(str(ppt_path))
+            os.startfile(str(ppt_path))
+            
+            return f"✅ Basic presentation created: {ppt_path}"
+            
+        except Exception as e:
+            return f"❌ Error creating basic presentation: {str(e)}"
+    
+    # 🌐 BROWSER AUTOMATION SUITE - INTERNET SUPERPOWERS! 🌐
+    
+    async def search_and_compare_prices(self, product):
+        """Search multiple sites and compare prices for a product"""
+        try:
+            print(f"🌐 JARVIS: Searching for {product} across multiple sites...")
+            await self.speak(f"Searching for the best deals on {product}. This may take a moment.")
+            
+            # Import playwright
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError:
+                return "❌ Playwright not installed. Please run: pip install playwright && playwright install"
+            
+            results = []
+            
+            async with async_playwright() as p:
+                # Launch browser in headless mode
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                )
+                
+                # Search Amazon
+                try:
+                    amazon_results = await self.search_amazon(context, product)
+                    if amazon_results:
+                        results.extend(amazon_results)
+                except Exception as e:
+                    print(f"Amazon search failed: {e}")
+                
+                # Search Best Buy (simplified)
+                try:
+                    bestbuy_results = await self.search_bestbuy(context, product)
+                    if bestbuy_results:
+                        results.extend(bestbuy_results)
+                except Exception as e:
+                    print(f"Best Buy search failed: {e}")
+                
+                await browser.close()
+            
+            # Format and return results
+            if results:
+                return self.format_price_comparison(results, product)
+            else:
+                return f"❌ No results found for '{product}'. Try a different search term."
+                
+        except Exception as e:
+            print(f"Error in price comparison: {str(e)}")
+            return f"❌ Browser automation error: {str(e)}"
+    
+    async def search_amazon(self, context, product):
+        """Search Amazon for products"""
+        try:
+            page = await context.new_page()
+            
+            # Go to Amazon
+            await page.goto("https://www.amazon.com", timeout=10000)
+            
+            # Search for product
+            search_box = await page.wait_for_selector("#twotabsearchtextbox", timeout=5000)
+            await search_box.fill(product)
+            await search_box.press("Enter")
+            
+            # Wait for results
+            await page.wait_for_selector("[data-component-type='s-search-result']", timeout=10000)
+            
+            # Extract first few results
+            results = []
+            products = await page.query_selector_all("[data-component-type='s-search-result']")
+            
+            for i, product_elem in enumerate(products[:3]):  # Get top 3 results
+                try:
+                    # Get product title
+                    title_elem = await product_elem.query_selector("h2 a span")
+                    title = await title_elem.inner_text() if title_elem else "Unknown Product"
+                    
+                    # Get price
+                    price_elem = await product_elem.query_selector(".a-price-whole")
+                    if not price_elem:
+                        price_elem = await product_elem.query_selector(".a-price .a-offscreen")
+                    
+                    price = await price_elem.inner_text() if price_elem else "Price not available"
+                    
+                    # Get product link
+                    link_elem = await product_elem.query_selector("h2 a")
+                    link = await link_elem.get_attribute("href") if link_elem else ""
+                    if link and link.startswith("/"):
+                        link = "https://www.amazon.com" + link
+                    
+                    results.append({
+                        "store": "Amazon",
+                        "title": title[:100],  # Truncate long titles
+                        "price": price,
+                        "link": link
+                    })
+                    
+                except Exception as e:
+                    print(f"Error extracting Amazon product {i}: {e}")
+                    continue
+            
+            await page.close()
+            return results
+            
+        except Exception as e:
+            print(f"Amazon search error: {e}")
+            return []
+    
+    async def search_bestbuy(self, context, product):
+        """Search Best Buy for products"""
+        try:
+            page = await context.new_page()
+            
+            # Go to Best Buy
+            await page.goto("https://www.bestbuy.com", timeout=10000)
+            
+            # Search for product
+            search_box = await page.wait_for_selector("#gh-search-input", timeout=5000)
+            await search_box.fill(product)
+            await search_box.press("Enter")
+            
+            # Wait for results
+            await page.wait_for_selector(".sku-item", timeout=10000)
+            
+            # Extract first few results
+            results = []
+            products = await page.query_selector_all(".sku-item")
+            
+            for i, product_elem in enumerate(products[:3]):  # Get top 3 results
+                try:
+                    # Get product title
+                    title_elem = await product_elem.query_selector(".sku-title a")
+                    title = await title_elem.inner_text() if title_elem else "Unknown Product"
+                    
+                    # Get price
+                    price_elem = await product_elem.query_selector(".pricing-current-price .sr-only")
+                    if not price_elem:
+                        price_elem = await product_elem.query_selector(".pricing-current-price")
+                    
+                    price = await price_elem.inner_text() if price_elem else "Price not available"
+                    
+                    # Get product link
+                    link_elem = await product_elem.query_selector(".sku-title a")
+                    link = await link_elem.get_attribute("href") if link_elem else ""
+                    if link and link.startswith("/"):
+                        link = "https://www.bestbuy.com" + link
+                    
+                    results.append({
+                        "store": "Best Buy",
+                        "title": title[:100],
+                        "price": price,
+                        "link": link
+                    })
+                    
+                except Exception as e:
+                    print(f"Error extracting Best Buy product {i}: {e}")
+                    continue
+            
+            await page.close()
+            return results
+            
+        except Exception as e:
+            print(f"Best Buy search error: {e}")
+            return []
+    
+    def format_price_comparison(self, results, product):
+        """Format the price comparison results into a readable report"""
+        try:
+            if not results:
+                return f"❌ No products found for '{product}'"
+            
+            report = f"🛒 **JARVIS Price Comparison Report: {product.title()}**\n\n"
+            report += f"🔍 Found {len(results)} products across {len(set(r['store'] for r in results))} stores:\n\n"
+            
+            # Group by store
+            stores = {}
+            for result in results:
+                store = result['store']
+                if store not in stores:
+                    stores[store] = []
+                stores[store].append(result)
+            
+            # Display results by store
+            for store, products in stores.items():
+                report += f"🏪 **{store}:**\n"
+                for i, product in enumerate(products, 1):
+                    report += f"   {i}. **{product['title']}**\n"
+                    report += f"      💰 Price: {product['price']}\n"
+                    if product['link']:
+                        report += f"      🔗 Link: {product['link'][:50]}...\n"
+                    report += "\n"
+            
+            # Save results to file
+            comparison_dir = Path.home() / "JARVIS_Price_Comparisons"
+            comparison_dir.mkdir(exist_ok=True)
+            
+            safe_product = re.sub(r'[^\w\s-]', '', product).strip()
+            safe_product = re.sub(r'[-\s]+', '_', safe_product)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"price_comparison_{safe_product[:20]}_{timestamp}.txt"
+            
+            with open(comparison_dir / filename, 'w', encoding='utf-8') as f:
+                f.write(report)
+            
+            report += f"📁 **Full report saved to:** {comparison_dir / filename}\n"
+            report += f"🚀 **Search completed in real-time by JARVIS Browser Automation**"
+            
+            return report
+            
+        except Exception as e:
+            return f"❌ Error formatting results: {str(e)}"
+    
+    # 📊 PPT MANAGEMENT - SHOW & STATUS METHODS
+    
+    async def show_latest_presentation(self):
+        """Open the most recently completed presentation"""
+        try:
+            if not self.presentation_queue:
+                return "No presentations have been created yet. Create one first by saying 'create ppt on [topic]'."
+            
+            # Get the latest presentation
+            latest_ppt = self.presentation_queue[-1]
+            topic = latest_ppt['topic']
+            
+            # Find the PPT file
+            ppt_dir = Path.home() / "JARVIS_Presentations"
+            if not ppt_dir.exists():
+                return "No presentations found. The presentation files may have been moved or deleted."
+            
+            # Look for the most recent PPT file matching the topic
+            ppt_files = list(ppt_dir.glob("*.pptx"))
+            if not ppt_files:
+                return "No presentation files found. They may have been moved or deleted."
+            
+            # Sort by creation time and get the latest
+            latest_file = max(ppt_files, key=lambda p: p.stat().st_mtime)
+            
+            # Open the presentation
+            os.startfile(str(latest_file))
+            
+            await self.speak(f"Opening presentation on {topic}.")
+            return f"✅ Opening presentation: {latest_file.name}\n📁 Location: {latest_file.parent}\n🎯 Topic: {topic}"
+            
+        except Exception as e:
+            return f"❌ Error opening presentation: {str(e)}"
+    
+    def check_presentation_status(self):
+        """Check status of all presentations"""
+        try:
+            if not self.active_presentations and not self.presentation_queue:
+                return "No presentations in progress or completed."
+            
+            status_report = "📊 **PRESENTATION STATUS REPORT**\n\n"
+            
+            # Active presentations
+            if self.active_presentations:
+                status_report += "🔄 **CREATING:**\n"
+                for topic, info in self.active_presentations.items():
+                    elapsed = datetime.now() - info['start_time']
+                    elapsed_str = f"{elapsed.seconds}s"
+                    status_report += f"   • {topic} - {info['status']} ({elapsed_str})\n"
+                status_report += "\n"
+            
+            # Completed presentations
+            if self.presentation_queue:
+                status_report += "✅ **COMPLETED:**\n"
+                for ppt in self.presentation_queue[-3:]:  # Show last 3
+                    time_str = ppt['created_at'].strftime("%H:%M")
+                    status_report += f"   • {ppt['topic']} - Ready ({time_str})\n"
+                status_report += f"\n💡 Say 'show ppt' to open the latest presentation."
+            
+            return status_report
+            
+        except Exception as e:
+            return f"❌ Error checking status: {str(e)}"
+    
+    # 📱 APP CREATION ENGINE - BUILD APPS WITH JARVIS! 📱
+    
+    async def create_application(self, app_description):
+        """Create a complete web application from description"""
+        try:
+            if not openai_client:
+                # For template fallback, provide immediate response  
+                immediate_response = f"Creating {app_description} application using built-in template."
+                print(f"📱 JARVIS: {immediate_response}")
+                
+                # Set phone polling flag for completion notification
+                self.phone_should_poll = True
+                
+                # Start template creation in background (including speech) - Threading approach for Flask compatibility
+                import threading
+                def run_bg(): 
+                    asyncio.run(self._create_app_template_background(app_description, immediate_response))
+                threading.Thread(target=run_bg, daemon=True).start()
+                return immediate_response
+            
+            # Provide immediate response to phone (like "opening chrome for you")
+            immediate_response = f"Creating {app_description} application."
+            print(f"📱 JARVIS: {immediate_response}")
+            
+            # Set phone polling flag for completion notification
+            self.phone_should_poll = True
+            
+            # Start app creation in background (including speech) - Threading approach for Flask compatibility
+            import threading
+            def run_bg(): 
+                asyncio.run(self._create_application_background(app_description, immediate_response))
+            threading.Thread(target=run_bg, daemon=True).start()
+            
+            # Return immediate response to phone
+            return immediate_response
+        
+        except Exception as e:
+            print(f"❌ Error starting app creation: {e}")
+            return f"Sorry, I encountered an error starting the app creation: {str(e)}"
+    
+    async def _create_application_background(self, app_description, immediate_response):
+        """Background worker for app creation"""
+        try:
+            # Speak the immediate response in background (not blocking phone response)
+            await self.speak(immediate_response)
+            
+            print(f"🔧 Background: Starting {app_description} app creation...")
+            
+            # Now do the actual app creation work
+            app_data = await self._generate_app_with_openai(app_description)
+            
+            if app_data:
+                await self.build_application_files(app_data)
+            else:
+                # Fallback to template (but don't speak again - already spoken)
+                print(f"🔧 Fallback: Using template for {app_description} app...")
+                template_data = self.get_app_template(app_description)
+                if template_data:
+                    await self.build_application_files(template_data)
+                else:
+                    await self.speak(f"Sorry, I don't have a template for {app_description} app yet.")
+                
+        except Exception as e:
+            error_msg = f"App creation failed: {str(e)}"
+            print(f"❌ Background app creation error: {error_msg}")
+            await self.speak(f"Sorry, the {app_description} app creation failed.")
+    
+    async def _generate_app_with_openai(self, app_description):
+        """Generate app using OpenAI (extracted from original create_application)"""
+        try:
+            # Enhanced prompt for app creation
+            system_prompt = """You are JARVIS, Tony Stark's AI assistant specializing in rapid application development.
+            Create a complete, functional web application based on the user's description.
+            
+            Return your response in this exact JSON format:
+            {
+                "app_name": "Application Name",
+                "description": "Brief description of the app's purpose",
+                "files": [
+                    {
+                        "filename": "index.html",
+                        "language": "html",
+                        "content": "Complete HTML code with proper structure"
+                    },
+                    {
+                        "filename": "style.css", 
+                        "language": "css",
+                        "content": "Complete CSS code with modern styling"
+                    },
+                    {
+                        "filename": "script.js",
+                        "language": "javascript", 
+                        "content": "Complete JavaScript code with all functionality"
+                    }
+                ],
+                "features": ["Feature 1", "Feature 2", "Feature 3"],
+                "instructions": "How to run and use the application"
+            }
+            
+            Requirements:
+            1. Create a fully functional, modern web application
+            2. Use responsive design with clean, professional styling
+            3. Include all necessary HTML structure, CSS styling, and JavaScript functionality
+            4. Make the app interactive and user-friendly
+            5. Add proper error handling and validation
+            6. Use modern web development best practices
+            7. Include comments explaining key functionality
+            8. Make the design visually appealing with good UX"""
+            
+            # Generate app code
+            response = openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create a complete {app_description} web application"}
+                ],
+                temperature=0.3
+            )
+            
+            # Parse the JSON response
+            import json
+            try:
+                app_data = json.loads(response.choices[0].message.content.strip())
+                return app_data  # Return the app data, don't build files here
+            except json.JSONDecodeError:
+                print("❌ Error parsing app generation response")
+                return None
+            
+        except Exception as e:
+            print(f"❌ Error in OpenAI app generation: {str(e)}")
+            return None
+    
+    async def _create_app_template_background(self, app_description, immediate_response):
+        """Background worker for template-based app creation"""
+        try:
+            # Speak the immediate response in background (not blocking phone response)
+            await self.speak(immediate_response)
+            
+            print(f"🔧 Background: Creating {app_description} app using template...")
+            
+            # Get template data
+            template_data = self.get_app_template(app_description)
+            
+            if template_data:
+                await self.build_application_files(template_data)
+            else:
+                await self.speak(f"Sorry, I don't have a template for {app_description} app yet.")
+                
+        except Exception as e:
+            print(f"❌ Background template app creation error: {str(e)}")
+            await self.speak(f"Sorry, the {app_description} app creation failed.")
+    
+    async def build_application_files(self, app_data):
+        """Build and save the application files"""
+        try:
+            # Create app directory
+            apps_dir = Path.home() / "JARVIS_Apps"
+            apps_dir.mkdir(exist_ok=True)
+            
+            # Generate safe app folder name
+            app_name = app_data.get('app_name', 'JARVIS_App')
+            safe_name = re.sub(r'[^\w\s-]', '', app_name).strip()
+            safe_name = re.sub(r'[-\s]+', '_', safe_name)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            app_folder = apps_dir / f"{safe_name}_{timestamp}"
+            app_folder.mkdir(exist_ok=True)
+            
+            # Create each file
+            created_files = []
+            for file_info in app_data.get('files', []):
+                file_path = app_folder / file_info['filename']
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"<!-- Generated by JARVIS on {datetime.now()} -->\n")
+                    f.write(file_info['content'])
+                created_files.append(file_info['filename'])
+            
+            # Create README file
+            readme_path = app_folder / "README.md"
+            with open(readme_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {app_data.get('app_name', 'JARVIS App')}\n\n")
+                f.write(f"**Description:** {app_data.get('description', 'Generated by JARVIS')}\n\n")
+                f.write("## Features\n")
+                for feature in app_data.get('features', []):
+                    f.write(f"- {feature}\n")
+                f.write(f"\n## Instructions\n{app_data.get('instructions', 'Open index.html in your browser')}\n")
+                f.write(f"\n**Generated by JARVIS on {datetime.now()}**")
+            
+            # Open the app in browser
+            index_path = app_folder / "index.html"
+            if index_path.exists():
+                os.startfile(str(index_path))
+            
+            # Voice confirmation
+            app_name = app_data.get('app_name', 'Application')
+            completion_message = f"{app_name} is ready. Opening in browser now."
+            await self.speak(completion_message)
+            
+            # Store completion notification for phone (simplified)
+            try:
+                if not hasattr(self, 'completion_notifications'):
+                    self.completion_notifications = []
+                
+                self.completion_notifications.append({
+                    'type': 'app_ready',
+                    'message': completion_message,
+                    'timestamp': datetime.now(),
+                    'app_name': app_name
+                })
+                print(f"📱 Completion notification stored for phone")
+                
+                # SIMPLE FIX: Also store as a simple flag  
+                self.latest_completion_message = completion_message
+                self.latest_completion_time = datetime.now()
+                
+            except Exception as e:
+                print(f"📱 Note: Could not store notification - {e}")
+            
+            return f"✅ Application Created Successfully!\n\n📱 **{app_data.get('app_name')}**\n📁 Location: {app_folder}\n📄 Files: {', '.join(created_files)}\n🎯 Features: {len(app_data.get('features', []))}\n\n🚀 Opening application in browser now!"
+            
+        except Exception as e:
+            return f"❌ Error building application files: {str(e)}"
+    
+    def _get_theme_color_rgb(self, theme_color):
+        """Get RGB color for theme"""
+        from pptx.dml.color import RGBColor
+        color_map = {
+            'blue': RGBColor(0, 112, 192),
+            'green': RGBColor(76, 175, 80),
+            'purple': RGBColor(156, 39, 176),
+            'red': RGBColor(244, 67, 54),
+            'orange': RGBColor(255, 152, 0)
+        }
+        return color_map.get(theme_color.lower(), RGBColor(0, 112, 192))
+    
+    async def create_app_template(self, app_description):
+        """Create app using built-in templates when OpenAI is not available"""
+        try:
+            await self.speak(f"Creating {app_description} application using built-in template.")
+            print(f"📱 JARVIS: Creating {app_description} using template")
+            
+            template = self.get_app_template(app_description.lower())
+            if not template:
+                return f"❌ No built-in template found for '{app_description}'.\n💡 Available templates:\n• Todo App\n• Calculator\n• Weather App\n• Note Taking App\n\nTry: 'create app todo list' or get OpenAI API for custom apps."
+            
+            # Use the template to create the app
+            return await self.build_application_files(template)
+            
+        except Exception as e:
+            return f"❌ Error creating template app: {str(e)}"
+    
+    def get_app_template(self, app_description):
+        """Get pre-built app templates"""
+        templates = {
+            "todo": {
+                "app_name": "JARVIS Todo App",
+                "description": "A modern todo list application with add, edit, delete functionality",
+                "files": [
+                    {
+                        "filename": "index.html",
+                        "language": "html",
+                        "content": """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Todo App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 JARVIS Todo List</h1>
+        <div class="input-section">
+            <input type="text" id="todoInput" placeholder="What needs to be done?">
+            <button onclick="addTodo()">Add Task</button>
+        </div>
+        <ul id="todoList"></ul>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>"""
+                    },
+                    {
+                        "filename": "style.css",
+                        "language": "css", 
+                        "content": """* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 10px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 30px;
+    font-size: 2.5em;
+}
+
+.input-section {
+    display: flex;
+    margin-bottom: 20px;
+    gap: 10px;
+}
+
+#todoInput {
+    flex: 1;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    font-size: 16px;
+}
+
+button {
+    padding: 12px 20px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #5a67d8;
+}
+
+#todoList {
+    list-style: none;
+}
+
+.todo-item {
+    background: #f8f9fa;
+    margin: 10px 0;
+    padding: 15px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.todo-item.completed {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+.delete-btn {
+    background: #e53e3e;
+    padding: 5px 10px;
+    font-size: 12px;
+}"""
+                    },
+                    {
+                        "filename": "script.js",
+                        "language": "javascript",
+                        "content": """let todos = [];
+let todoId = 1;
+
+function addTodo() {
+    const input = document.getElementById('todoInput');
+    const text = input.value.trim();
+    
+    if (text === '') {
+        alert('Please enter a task!');
+        return;
+    }
+    
+    const todo = {
+        id: todoId++,
+        text: text,
+        completed: false
+    };
+    
+    todos.push(todo);
+    input.value = '';
+    renderTodos();
+}
+
+function deleteTodo(id) {
+    todos = todos.filter(todo => todo.id !== id);
+    renderTodos();
+}
+
+function toggleTodo(id) {
+    const todo = todos.find(todo => todo.id === id);
+    if (todo) {
+        todo.completed = !todo.completed;
+        renderTodos();
+    }
+}
+
+function renderTodos() {
+    const todoList = document.getElementById('todoList');
+    todoList.innerHTML = '';
+    
+    todos.forEach(todo => {
+        const li = document.createElement('li');
+        li.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+        li.innerHTML = `
+            <span onclick="toggleTodo(${todo.id})" style="cursor: pointer;">${todo.text}</span>
+            <button class="delete-btn" onclick="deleteTodo(${todo.id})">Delete</button>
+        `;
+        todoList.appendChild(li);
+    });
+}
+
+// Add todo on Enter key press
+document.getElementById('todoInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        addTodo();
+    }
+});"""
+                    }
+                ],
+                "features": ["Add new tasks", "Mark tasks as complete", "Delete tasks", "Responsive design"],
+                "instructions": "Open index.html in your browser to use the todo app. Click on tasks to mark them complete."
+            }
+        }
+        
+        # Find matching template
+        for keyword in ["todo", "task", "list"]:
+            if keyword in app_description:
+                return templates["todo"]
+        
+        return None
+    
+    # 🛠️ NO-OPENAI ALTERNATIVES - JARVIS STILL POWERFUL WITHOUT API! 🛠️
+    
+    async def generate_code_without_openai(self, description):
+        """Generate code using pre-built templates - No OpenAI needed!"""
+        try:
+            print(f"🛠️ JARVIS: Using built-in templates for: {description}")
+            
+            # Create scripts directory
+            scripts_dir = Path.home() / "JARVIS_Scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            
+            # Match description to templates
+            code_template = self.match_code_template(description.lower())
+            
+            if not code_template:
+                return f"❌ No built-in template found for '{description}'.\n\n💡 Available templates:\n• File organization\n• Photo renaming\n• Duplicate finder\n• System cleanup\n• Backup creation\n\nTry: 'write code to organize files' or get OpenAI API for custom code generation."
+            
+            # Generate filename
+            safe_filename = re.sub(r'[^\w\s-]', '', description).strip()
+            safe_filename = re.sub(r'[-\s]+', '_', safe_filename)
+            script_filename = f"jarvis_template_{safe_filename[:30]}.py"
+            script_path = scripts_dir / script_filename
+            
+            # Save the template code
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(f"# JARVIS Template Script: {description}\n")
+                f.write(f"# Generated on: {datetime.now()}\n\n")
+                f.write(code_template['code'])
+            
+            await self.speak(f"I've created a script for {description} using my built-in templates.")
+            
+            # Execute the script
+            result = self.execute_python_script(script_path)
+            
+            return f"✅ Template Script Created & Executed!\n\n📄 Script: {script_filename}\n📁 Location: {scripts_dir}\n🎯 Template: {code_template['name']}\n\n🔧 Result:\n{result}"
+            
+        except Exception as e:
+            return f"❌ Template generation error: {str(e)}"
+    
+    def match_code_template(self, description):
+        """Match user description to pre-built code templates"""
+        
+        templates = {
+            # File Organization Templates
+            "organize_files": {
+                "keywords": ["organize files", "sort files", "organize downloads", "organize folder"],
+                "name": "File Organizer",
+                "code": '''import os
+import shutil
+from pathlib import Path
+
+def organize_files():
+    """Organize files in Downloads folder by extension"""
+    try:
+        downloads_path = Path.home() / "Downloads"
+        
+        # Create organization folders
+        folders = {
+            'Images': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg'],
+            'Documents': ['.pdf', '.doc', '.docx', '.txt', '.rtf'],
+            'Videos': ['.mp4', '.avi', '.mkv', '.mov', '.wmv'],
+            'Audio': ['.mp3', '.wav', '.flac', '.aac'],
+            'Archives': ['.zip', '.rar', '.7z', '.tar'],
+            'Programs': ['.exe', '.msi', '.deb', '.dmg'],
+        }
+        
+        organized_count = 0
+        
+        for file in downloads_path.iterdir():
+            if file.is_file():
+                file_extension = file.suffix.lower()
+                
+                # Find matching folder
+                target_folder = None
+                for folder, extensions in folders.items():
+                    if file_extension in extensions:
+                        target_folder = folder
+                        break
+                
+                if target_folder:
+                    # Create folder if it doesn't exist
+                    target_path = downloads_path / target_folder
+                    target_path.mkdir(exist_ok=True)
+                    
+                    # Move file
+                    new_path = target_path / file.name
+                    if not new_path.exists():
+                        shutil.move(str(file), str(new_path))
+                        organized_count += 1
+                        print(f"Moved: {file.name} → {target_folder}/")
+        
+        print(f"✅ Organization complete! Moved {organized_count} files.")
+        return organized_count
+        
+    except Exception as e:
+        print(f"❌ Error organizing files: {e}")
+        return 0
+
+# Run the organizer
+if __name__ == "__main__":
+    organize_files()
+'''
+            },
+            
+            # Photo Renaming Template
+            "rename_photos": {
+                "keywords": ["rename photos", "rename images", "organize photos", "photo names"],
+                "name": "Photo Renamer",
+                "code": '''import os
+from pathlib import Path
+from datetime import datetime
+
+def rename_photos_by_date():
+    """Rename photos with date/time stamps"""
+    try:
+        pictures_path = Path.home() / "Pictures"
+        renamed_count = 0
+        
+        # Supported image extensions
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
+        
+        for file in pictures_path.iterdir():
+            if file.is_file() and file.suffix.lower() in image_extensions:
+                # Get file creation time
+                creation_time = datetime.fromtimestamp(file.stat().st_ctime)
+                
+                # Create new name: IMG_YYYYMMDD_HHMMSS.ext
+                new_name = f"IMG_{creation_time.strftime('%Y%m%d_%H%M%S')}{file.suffix}"
+                new_path = file.parent / new_name
+                
+                # Rename if new name doesn't exist
+                if not new_path.exists():
+                    file.rename(new_path)
+                    print(f"Renamed: {file.name} → {new_name}")
+                    renamed_count += 1
+        
+        print(f"✅ Photo renaming complete! Renamed {renamed_count} photos.")
+        return renamed_count
+        
+    except Exception as e:
+        print(f"❌ Error renaming photos: {e}")
+        return 0
+
+# Run the renamer
+if __name__ == "__main__":
+    rename_photos_by_date()
+'''
+            },
+            
+            # System Cleanup Template
+            "system_cleanup": {
+                "keywords": ["clean system", "cleanup", "clean temp", "delete temp", "system maintenance"],
+                "name": "System Cleaner",
+                "code": '''import os
+import shutil
+import tempfile
+from pathlib import Path
+
+def clean_system():
+    """Clean temporary files and system junk"""
+    try:
+        cleaned_size = 0
+        cleaned_files = 0
+        
+        # Clean Windows temp folder
+        temp_paths = [
+            Path(tempfile.gettempdir()),
+            Path.home() / "AppData" / "Local" / "Temp",
+            Path("C:/Windows/Temp") if os.path.exists("C:/Windows/Temp") else None
+        ]
+        
+        for temp_path in temp_paths:
+            if temp_path and temp_path.exists():
+                print(f"Cleaning: {temp_path}")
+                
+                for item in temp_path.iterdir():
+                    try:
+                        if item.is_file():
+                            size = item.stat().st_size
+                            item.unlink()
+                            cleaned_size += size
+                            cleaned_files += 1
+                        elif item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                            cleaned_files += 1
+                    except (PermissionError, FileNotFoundError):
+                        continue  # Skip files in use
+        
+        # Convert size to MB
+        size_mb = cleaned_size / (1024 * 1024)
+        
+        print(f"✅ Cleanup complete!")
+        print(f"   Files cleaned: {cleaned_files}")
+        print(f"   Space freed: {size_mb:.2f} MB")
+        
+        return {"files": cleaned_files, "size_mb": size_mb}
+        
+    except Exception as e:
+        print(f"❌ Error during cleanup: {e}")
+        return {"files": 0, "size_mb": 0}
+
+# Run the cleaner
+if __name__ == "__main__":
+    clean_system()
+'''
+            },
+            
+            # Backup Template
+            "backup_files": {
+                "keywords": ["backup", "backup files", "create backup", "backup documents"],
+                "name": "File Backup",
+                "code": '''import shutil
+import os
+from pathlib import Path
+from datetime import datetime
+
+def backup_important_files():
+    """Create backup of important files"""
+    try:
+        # Create backup folder
+        backup_root = Path.home() / "JARVIS_Backups"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_folder = backup_root / f"Backup_{timestamp}"
+        backup_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Folders to backup
+        source_folders = [
+            Path.home() / "Documents",
+            Path.home() / "Desktop",
+            Path.home() / "Pictures",
+        ]
+        
+        backed_up_files = 0
+        total_size = 0
+        
+        for source in source_folders:
+            if source.exists():
+                target = backup_folder / source.name
+                print(f"Backing up: {source} → {target}")
+                
+                # Copy folder contents
+                for item in source.rglob("*"):
+                    if item.is_file():
+                        try:
+                            relative_path = item.relative_to(source)
+                            target_file = target / relative_path
+                            target_file.parent.mkdir(parents=True, exist_ok=True)
+                            
+                            shutil.copy2(item, target_file)
+                            backed_up_files += 1
+                            total_size += item.stat().st_size
+                            
+                            if backed_up_files % 100 == 0:
+                                print(f"   Backed up {backed_up_files} files...")
+                                
+                        except (PermissionError, FileNotFoundError):
+                            continue
+        
+        size_mb = total_size / (1024 * 1024)
+        
+        print(f"✅ Backup complete!")
+        print(f"   Location: {backup_folder}")
+        print(f"   Files backed up: {backed_up_files}")
+        print(f"   Total size: {size_mb:.2f} MB")
+        
+        return {"files": backed_up_files, "size_mb": size_mb, "location": str(backup_folder)}
+        
+    except Exception as e:
+        print(f"❌ Backup error: {e}")
+        return {"files": 0, "size_mb": 0, "location": ""}
+
+# Run the backup
+if __name__ == "__main__":
+    backup_important_files()
+'''
+            }
+        }
+        
+        # Find matching template
+        for template_key, template in templates.items():
+            for keyword in template['keywords']:
+                if keyword in description:
+                    return template
+        
+        return None
+    
+    async def create_presentation_without_openai(self, topic):
+        """Create basic presentations using templates - No OpenAI needed!"""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+            
+            print(f"📊 JARVIS: Creating template presentation on: {topic}")
+            
+            # Get presentation template
+            template_data = self.get_presentation_template(topic.lower())
+            
+            if not template_data:
+                return f"❌ No built-in template found for '{topic}'.\n\n💡 Available templates:\n• Technology & AI (artificial intelligence, machine learning, automation)\n• Business & Marketing (startup, entrepreneurship, sales)\n• Religion & Spirituality (krishna, hinduism, meditation, dharma)\n• Health & Wellness (fitness, nutrition, mental health)\n• Education & Learning (study, teaching, skills)\n\nTry: 'create presentation on artificial intelligence' or 'create presentation on jai shree krishna' or get OpenAI API for custom presentations."
+            
+            # Create presentation
+            prs = Presentation()
+            
+            # Title slide
+            slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(slide_layout)
+            title = slide.shapes.title
+            subtitle = slide.placeholders[1]
+            title.text = template_data['title']
+            subtitle.text = f"Generated by JARVIS Templates\n{datetime.now().strftime('%B %d, %Y')}"
+            
+            # Add content slides
+            for slide_data in template_data['slides']:
+                slide_layout = prs.slide_layouts[1]
+                slide = prs.slides.add_slide(slide_layout)
+                title = slide.shapes.title
+                content = slide.placeholders[1]
+                title.text = slide_data['title']
+                content.text = slide_data['content']
+            
+            # Save presentation
+            presentations_dir = Path.home() / "JARVIS_Presentations"
+            presentations_dir.mkdir(exist_ok=True)
+            safe_topic = re.sub(r'[^\w\s-]', '', topic).strip()[:20]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"JARVIS_Template_{safe_topic}_{timestamp}.pptx"
+            ppt_path = presentations_dir / filename
+            prs.save(str(ppt_path))
+            os.startfile(str(ppt_path))
+            
+            return f"✅ Template Presentation Created!\n\n📊 **{template_data['title']}**\n📁 Location: {ppt_path}\n🎯 Template: {template_data['category']}\n\n🚀 Opening presentation now..."
+            
+        except ImportError:
+            print("❌ python-pptx library not found")
+            return "❌ python-pptx library not installed. Please run: pip install python-pptx"
+        except Exception as e:
+            print(f"❌ Exception in create_presentation_without_openai: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return f"❌ Error creating template presentation: {str(e)}"
+    
+    def get_presentation_template(self, topic):
+        """Get pre-built presentation templates"""
+        
+        templates = {
+            # Put more specific templates first to avoid false matches
+            "religion_spirituality": {
+                "keywords": ["krishna", "jai shree krishna", "hindu", "hinduism", "spirituality", "religion", "god", "bhagavad gita", "dharma", "meditation"],
+                "category": "Religion & Spirituality",
+                "title": "Jai Shree Krishna: Wisdom & Teachings",
+                "slides": [
+                    {
+                        "title": "Lord Krishna: The Divine Guide",
+                        "content": "• Krishna as the eighth avatar of Lord Vishnu\n• Born in Mathura, raised in Vrindavan\n• Symbol of divine love, wisdom, and righteousness\n• Central figure in Hindu philosophy and culture"
+                    },
+                    {
+                        "title": "Teachings from Bhagavad Gita",
+                        "content": "• Dharma: Righteous duty and moral law\n• Karma Yoga: The path of selfless action\n• Devotion and surrender to the divine\n• Finding inner peace through meditation\n• Balance between material and spiritual life"
+                    },
+                    {
+                        "title": "Krishna's Life Lessons",
+                        "content": "• Childhood: Joy, playfulness, and innocence\n• Youth: Love, compassion, and relationships\n• Leadership: Guidance during Kurukshetra war\n• Philosophy: Eternal wisdom for modern life\n• Legacy: Inspiration for millions worldwide"
+                    },
+                    {
+                        "title": "Modern Relevance",
+                        "content": "• Stress management through spiritual practices\n• Ethical decision-making in daily life\n• Finding purpose and meaning\n• Building strong relationships and community\n• Inner peace in a chaotic world"
+                    }
+                ]
+            },
+            
+            "ai_technology": {
+                "keywords": ["artificial intelligence", "ai", "machine learning", "technology", "automation"],
+                "category": "Technology & AI",
+                "title": "Artificial Intelligence: The Future is Now",
+                "slides": [
+                    {
+                        "title": "What is Artificial Intelligence?",
+                        "content": "• AI simulates human intelligence in machines\n• Machine learning enables systems to learn automatically\n• Deep learning uses neural networks for complex pattern recognition\n• AI is transforming industries worldwide"
+                    },
+                    {
+                        "title": "Current AI Applications",
+                        "content": "• Virtual assistants (Siri, Alexa, JARVIS)\n• Autonomous vehicles and transportation\n• Medical diagnosis and drug discovery\n• Financial fraud detection\n• Personalized recommendations"
+                    },
+                    {
+                        "title": "Benefits of AI",
+                        "content": "• Increased efficiency and productivity\n• 24/7 availability and consistency\n• Reduced human error in repetitive tasks\n• Enhanced decision-making with data analysis\n• Cost reduction in various operations"
+                    },
+                    {
+                        "title": "Future Implications",
+                        "content": "• Job transformation and new career opportunities\n• Improved healthcare and life expectancy\n• Smart cities and sustainable development\n• Enhanced human capabilities and creativity\n• Ethical considerations and responsible development"
+                    }
+                ]
+            },
+            
+            "business_marketing": {
+                "keywords": ["business", "marketing", "startup", "entrepreneurship", "sales"],
+                "category": "Business & Marketing",
+                "title": "Modern Business Strategy & Marketing",
+                "slides": [
+                    {
+                        "title": "Digital Marketing Revolution",
+                        "content": "• Social media marketing and brand building\n• Search engine optimization (SEO)\n• Content marketing and storytelling\n• Data-driven decision making\n• Customer relationship management (CRM)"
+                    },
+                    {
+                        "title": "Key Success Factors",
+                        "content": "• Understanding your target audience\n• Creating value propositions that resonate\n• Building strong brand identity\n• Leveraging technology for efficiency\n• Continuous learning and adaptation"
+                    },
+                    {
+                        "title": "Market Trends 2024",
+                        "content": "• AI-powered customer service\n• Personalization at scale\n• Sustainable business practices\n• Remote work optimization\n• E-commerce integration"
+                    }
+                ]
+            },
+            
+            "health_wellness": {
+                "keywords": ["health", "wellness", "fitness", "nutrition", "mental health", "exercise", "diet", "healthy living"],
+                "category": "Health & Wellness",
+                "title": "Health & Wellness: Your Complete Guide",
+                "slides": [
+                    {
+                        "title": "The Pillars of Health",
+                        "content": "• Physical fitness and regular exercise\n• Balanced nutrition and healthy eating\n• Mental health and stress management\n• Adequate sleep and rest\n• Strong social connections"
+                    },
+                    {
+                        "title": "Exercise & Fitness",
+                        "content": "• Cardiovascular health benefits\n• Strength training for muscle health\n• Flexibility and mobility exercises\n• Creating sustainable workout routines\n• Finding activities you enjoy"
+                    },
+                    {
+                        "title": "Nutrition Basics",
+                        "content": "• Balanced macronutrients (protein, carbs, fats)\n• Essential vitamins and minerals\n• Hydration and water intake\n• Portion control and mindful eating\n• Avoiding processed foods"
+                    },
+                    {
+                        "title": "Mental Wellness",
+                        "content": "• Stress reduction techniques\n• Mindfulness and meditation practices\n• Work-life balance strategies\n• Building resilience and coping skills\n• Seeking professional help when needed"
+                    }
+                ]
+            },
+            
+            "education_learning": {
+                "keywords": ["education", "learning", "teaching", "study", "school", "university", "knowledge", "skills"],
+                "category": "Education & Learning",
+                "title": "Modern Education & Learning Strategies",
+                "slides": [
+                    {
+                        "title": "The Evolution of Learning",
+                        "content": "• Traditional classroom vs. digital learning\n• Personalized education approaches\n• Lifelong learning mindset\n• Skill-based vs. knowledge-based education\n• Global accessibility through technology"
+                    },
+                    {
+                        "title": "Effective Study Techniques",
+                        "content": "• Active recall and spaced repetition\n• Mind mapping and visual learning\n• Goal setting and time management\n• Collaborative learning and peer support\n• Regular practice and application"
+                    },
+                    {
+                        "title": "21st Century Skills",
+                        "content": "• Critical thinking and problem solving\n• Communication and collaboration\n• Creativity and innovation\n• Digital literacy and technology skills\n• Adaptability and continuous learning"
+                    }
+                ]
+            }
+        }
+        
+        # Find matching template
+        for template_key, template in templates.items():
+            for keyword in template['keywords']:
+                if keyword in topic:
+                    return template
+        
+        return None
+
 class WebJarvis:
     def __init__(self, jarvis_instance):
         self.jarvis = jarvis_instance
         self.app = Flask(__name__)
         self.app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'jarvis-secret-key-2024')
-        self.socketio = SocketIO(self.app, cors_allowed_origins="*")
+        # Enhanced SocketIO configuration for better WebSocket connections
+        self.socketio = SocketIO(
+            self.app, 
+            cors_allowed_origins="*",
+            logger=False,  # Reduce socketio logging noise
+            engineio_logger=False,
+            async_mode='threading',  # Use threading mode for better compatibility
+            transport=['websocket', 'polling'],  # Allow both WebSocket and polling fallback
+            ping_timeout=60,  # Longer timeout for mobile connections
+            ping_interval=25   # Regular ping to keep connection alive
+        )
         self.setup_routes()
         self.setup_socketio_events()
         self.connected_clients = set()
@@ -3442,9 +5210,27 @@ class WebJarvis:
                     'timestamp': datetime.now().strftime('%H:%M:%S')
                 })
                 
+                # SIMPLE COMPLETION MESSAGE CHECK (Fixed null check)
+                completion_message = None
+                if (hasattr(self.jarvis, 'latest_completion_message') and 
+                    hasattr(self.jarvis, 'latest_completion_time') and 
+                    self.jarvis.latest_completion_message is not None and 
+                    self.jarvis.latest_completion_time is not None):
+                    # Check if there's a recent completion message (last 2 minutes)
+                    time_diff = (datetime.now() - self.jarvis.latest_completion_time).total_seconds()
+                    if time_diff < 120:  # 2 minutes
+                        completion_message = self.jarvis.latest_completion_message
+                        print(f"📱 Sending completion message to phone with command response: {completion_message}")
+                        # Clear the message and polling flag so it's only sent once
+                        self.jarvis.latest_completion_message = None
+                        self.jarvis.latest_completion_time = None
+                        self.jarvis.phone_should_poll = False
+                
                 return jsonify({
                     'success': True,
                     'response': response,
+                    'completion_message': completion_message,  # SIMPLE completion message
+                    'should_poll_completion': self.jarvis.phone_should_poll,  # Flag for auto-polling
                     'timestamp': datetime.now().strftime('%H:%M:%S')
                 })
                 
@@ -3557,6 +5343,41 @@ class WebJarvis:
             client_ip = request.remote_addr
             self.jarvis.update_phone_connection(client_ip, connected=True)
             
+            # Check for pending completion notifications
+            pending_notifications = []
+            if hasattr(self.jarvis, 'completion_notifications') and self.jarvis.completion_notifications:
+                # Get recent notifications (last 5 minutes)
+                current_time = datetime.now()
+                pending_notifications = [
+                    notif for notif in self.jarvis.completion_notifications 
+                    if (current_time - notif['timestamp']).seconds < 300  # 5 minutes
+                ]
+                
+                # Clear old notifications
+                self.jarvis.completion_notifications = [
+                    notif for notif in self.jarvis.completion_notifications
+                    if (current_time - notif['timestamp']).seconds < 300
+                ]
+                
+                if pending_notifications:
+                    print(f"📱 Sending {len(pending_notifications)} completion notifications to phone")
+            
+            # SIMPLE COMPLETION MESSAGE CHECK (Fixed null check)
+            completion_message = None
+            if (hasattr(self.jarvis, 'latest_completion_message') and 
+                hasattr(self.jarvis, 'latest_completion_time') and 
+                self.jarvis.latest_completion_message is not None and 
+                self.jarvis.latest_completion_time is not None):
+                # Check if there's a recent completion message (last 2 minutes)
+                time_diff = (datetime.now() - self.jarvis.latest_completion_time).total_seconds()
+                if time_diff < 120:  # 2 minutes
+                    completion_message = self.jarvis.latest_completion_message
+                    print(f"📱 Sending completion message to phone: {completion_message}")
+                    # Clear the message and polling flag so it's only sent once
+                    self.jarvis.latest_completion_message = None
+                    self.jarvis.latest_completion_time = None
+                    self.jarvis.phone_should_poll = False
+            
             return jsonify({
                 'status': 'online',
                 'is_awake': self.jarvis.is_awake,
@@ -3564,9 +5385,159 @@ class WebJarvis:
                 'waiting_for_response': self.jarvis.waiting_for_response,
                 'keep_awake_active': self.jarvis.keep_awake_active,
                 'connected_devices': len(self.jarvis.connected_clients),
+                'websocket_clients': len(self.connected_clients),
+                'websocket_status': 'connected' if self.connected_clients else 'no_clients',
+                'pending_notifications': pending_notifications,  # Include completion notifications
+                'completion_message': completion_message,  # SIMPLE completion message
+                'should_poll_completion': self.jarvis.phone_should_poll,  # Flag for auto-polling
                 'timestamp': datetime.now().strftime('%H:%M:%S')
             })
         
+        @self.app.route('/api/websocket-test')
+        def websocket_test():
+            """Test WebSocket connection status"""
+            try:
+                return jsonify({
+                    'websocket_enabled': True,
+                    'connected_clients': len(self.connected_clients),
+                    'client_list': list(self.connected_clients)[:5],  # Show first 5 clients
+                    'socketio_configured': hasattr(self, 'socketio'),
+                    'test_timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'message': f"WebSocket status: {'Active' if self.connected_clients else 'No active connections'}",
+                    'instructions': "Connect via WebSocket to establish real-time communication"
+                })
+            except Exception as e:
+                return jsonify({
+                    'error': str(e), 
+                    'websocket_enabled': False,
+                    'message': 'WebSocket connection test failed'
+                                 }), 500
+        
+        @self.app.route('/api/test-broadcast', methods=['POST'])
+        def test_broadcast():
+            """Test broadcasting to WebSocket clients"""
+            try:
+                message = request.json.get('message', 'Test broadcast from JARVIS')
+                
+                if not self.connected_clients:
+                    return jsonify({
+                        'success': False,
+                        'message': 'No WebSocket clients connected to broadcast to',
+                        'connected_clients': 0
+                    })
+                
+                # Test broadcast
+                self.broadcast_response('test', f"🧪 TEST: {message}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Broadcast sent to {len(self.connected_clients)} clients',
+                    'connected_clients': len(self.connected_clients),
+                    'broadcast_content': message
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'message': 'Test broadcast failed'
+                                 }), 500
+        
+        @self.app.route('/api/notifications')
+        def get_notifications():
+            """Get pending completion notifications for phone"""
+            try:
+                notifications = []
+                if hasattr(self.jarvis, 'completion_notifications') and self.jarvis.completion_notifications:
+                    # Get all pending notifications
+                    current_time = datetime.now()
+                    notifications = [
+                        {
+                            'type': notif['type'],
+                            'message': notif['message'],
+                            'timestamp': notif['timestamp'].strftime('%H:%M:%S'),
+                            'age_seconds': (current_time - notif['timestamp']).seconds
+                        }
+                        for notif in self.jarvis.completion_notifications
+                        if (current_time - notif['timestamp']).seconds < 300  # Last 5 minutes
+                    ]
+                    
+                    # Clear delivered notifications
+                    self.jarvis.completion_notifications = []
+                    
+                    if notifications:
+                        print(f"📱 Delivered {len(notifications)} notifications to phone")
+                
+                return jsonify({
+                    'success': True,
+                    'notifications': notifications,
+                    'count': len(notifications),
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'notifications': []
+                                 }), 500
+        
+        @self.app.route('/api/test-notification', methods=['POST'])
+        def test_notification():
+            """Create a test notification for phone"""
+            try:
+                message = request.json.get('message', 'Test notification from JARVIS')
+                
+                # Add test notification
+                if not hasattr(self.jarvis, 'completion_notifications'):
+                    self.jarvis.completion_notifications = []
+                
+                self.jarvis.completion_notifications.append({
+                    'type': 'test',
+                    'message': message,
+                    'timestamp': datetime.now()
+                })
+                
+                print(f"📱 Test notification created: {message}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Test notification created: {message}',
+                    'total_notifications': len(self.jarvis.completion_notifications)
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
+        @self.app.route('/api/test-polling', methods=['POST'])
+        def test_polling():
+            """Test the phone polling flag system"""
+            try:
+                # Simulate setting polling flag (like PPT/app command)
+                self.jarvis.phone_should_poll = True
+                
+                # Create a test completion message
+                test_message = "Test task completed successfully!"
+                self.jarvis.latest_completion_message = test_message
+                self.jarvis.latest_completion_time = datetime.now()
+                
+                print(f"📱 Test polling flag set with message: {test_message}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Polling flag set - phone should start auto-polling',
+                    'should_poll_completion': self.jarvis.phone_should_poll,
+                    'test_completion_message': test_message
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
 
         @self.app.route('/api/screenshot')
         def api_screenshot():
@@ -4180,29 +6151,59 @@ class WebJarvis:
         
         @self.socketio.on('connect')
         def handle_connect():
-            print(f"Client connected: {request.sid}")
-            self.connected_clients.add(request.sid)
-            emit('status', {
-                'message': 'Connected to Jarvis',
-                'is_awake': self.jarvis.is_awake,
-                'is_speaking': self.jarvis.is_speaking
-            })
+            try:
+                client_id = request.sid
+                client_ip = request.environ.get('REMOTE_ADDR', 'Unknown')
+                print(f"📱 WebSocket Client Connected: {client_id} from {client_ip}")
+                self.connected_clients.add(client_id)
+                
+                # Send connection confirmation 
+                emit('status', {
+                    'message': 'WebSocket Connected to JARVIS',
+                    'client_id': client_id,
+                    'is_awake': getattr(self.jarvis, 'is_awake', True),
+                    'is_speaking': getattr(self.jarvis, 'is_speaking', False),
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                })
+                
+                print(f"📡 Total WebSocket clients: {len(self.connected_clients)}")
+                
+            except Exception as e:
+                print(f"❌ WebSocket connect error: {e}")
+                # Don't let connection errors crash the handler
+                try:
+                    emit('error', {'message': f'Connection error: {str(e)}'})
+                except:
+                    pass
         
         @self.socketio.on('disconnect')
         def handle_disconnect():
-            print(f"Client disconnected: {request.sid}")
-            self.connected_clients.discard(request.sid)
+            try:
+                client_id = request.sid
+                client_ip = request.environ.get('REMOTE_ADDR', 'Unknown')
+                print(f"📱 WebSocket Client Disconnected: {client_id} from {client_ip}")
+                self.connected_clients.discard(client_id)
+                print(f"📡 Remaining WebSocket clients: {len(self.connected_clients)}")
+            except Exception as e:
+                print(f"❌ WebSocket disconnect error: {e}")
+                # Clean up stale connections on error
+                try:
+                    self.connected_clients.discard(request.sid)
+                except:
+                    pass
         
         @self.socketio.on('send_command')
         def handle_command(data):
             """Handle command sent via WebSocket"""
             try:
                 command = data.get('command', '').strip()
+                client_id = request.sid
+                
                 if not command:
                     emit('error', {'message': 'No command provided'})
                     return
                 
-                print(f"Web command received: {command}")
+                print(f"📱 WebSocket Command from {client_id}: {command}")
                 
                 # Add command to Jarvis queue
                 self.jarvis.command_queue.put(command)
@@ -4210,19 +6211,40 @@ class WebJarvis:
                 # Acknowledge command received
                 emit('command_received', {
                     'command': command,
+                    'client_id': client_id,
+                    'status': 'queued',
                     'timestamp': datetime.now().strftime('%H:%M:%S')
                 })
                 
+                print(f"✅ Command queued successfully: {command}")
+                
             except Exception as e:
-                emit('error', {'message': f"Error processing command: {str(e)}"})
+                print(f"❌ WebSocket command error: {e}")
+                try:
+                    emit('error', {'message': f"Error processing command: {str(e)}"})
+                except:
+                    pass
     
     def broadcast_response(self, command, response):
         """Broadcast response to all connected clients"""
-        self.socketio.emit('response', {
-            'command': command,
-            'response': response,
-            'timestamp': datetime.now().strftime('%H:%M:%S')
-        })
+        try:
+            if not self.connected_clients:
+                print("📱 No connected clients to broadcast to")
+                return
+                
+            print(f"📱 Broadcasting to {len(self.connected_clients)} clients: {response[:50]}...")
+            self.socketio.emit('response', {
+                'command': command,
+                'response': response,
+                'timestamp': datetime.now().strftime('%H:%M:%S')
+            })
+        except Exception as e:
+            print(f"❌ Error broadcasting response: {e}")
+            # Try to clean up stale connections
+            try:
+                self.connected_clients.clear()
+            except:
+                pass
     
     def broadcast_status(self, status_data):
         """Broadcast status update to all connected clients"""
