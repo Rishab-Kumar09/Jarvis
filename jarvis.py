@@ -3693,39 +3693,48 @@ class Jarvis:
             
             print(f"🎯 JARVIS: Creating presentation on: {topic}")
             
-            # Enhanced system prompt for premium presentation generation with images
-            system_prompt = """You are JARVIS, Tony Stark's advanced AI assistant with expertise in creating stunning, detailed presentations that rival professional consultancy work.
+            # 🎨 ENHANCED SYSTEM PROMPT FOR STUNNING PRESENTATIONS
+            system_prompt = """You are JARVIS, Tony Stark's world-class AI assistant with Fortune 500 presentation design expertise.
+            Create STUNNING presentations that combine visual excellence with compelling content - worthy of TED Talks and boardroom presentations.
             
-            Generate a comprehensive presentation with rich, engaging content, visual design, and image suggestions.
-            
-            Return your response in this exact JSON format:
+            Return response in this EXACT JSON format:
             {
                 "title": "Compelling Professional Title",
-                "subtitle": "Engaging subtitle or key insight",
-                "theme_color": "professional theme (blue/green/purple/red/orange)",
-                "background_style": "gradient/solid/tech/modern",
+                "subtitle": "Captivating subtitle that hooks the audience",
+                "theme_color": "blue|green|red|purple|orange|teal",
                 "slides": [
                     {
                         "title": "Engaging Slide Title",
-                        "content": "Rich, detailed content with specific examples, statistics, case studies, and actionable insights. Include 5-7 substantial bullet points with explanations.",
-                        "slide_type": "title/content/conclusion/comparison/timeline/image_focus",
-                        "design_suggestion": "Visual layout suggestion (e.g., 'use charts', 'include timeline', 'add comparison table')",
-                        "image_suggestion": "Specific image description for this slide (e.g., 'diagram of solar system', 'business growth chart', 'person meditating')",
-                        "visual_elements": ["icons", "shapes", "charts", "diagrams", "photos"]
+                        "content": "• Compelling bullet point with specific details\n• Insightful point with examples or statistics\n• Practical application or real-world relevance\n• Expert insight or professional recommendation\n• Actionable takeaway or next step",
+                        "image_suggestion": "Specific professional image description",
+                        "design_suggestion": "Visual enhancement and layout ideas",
+                        "visual_elements": ["professional_icons", "elegant_charts", "modern_diagrams"]
                     }
                 ]
             }
             
-            Premium Requirements:
-            1. Create 8-12 information-rich slides with substantial content
-            2. Include specific examples, real statistics, case studies, and practical applications
-            3. Each content slide should have 5-7 detailed bullet points with explanations
-            4. Add design suggestions and image recommendations for visual appeal
-            5. Suggest relevant images, icons, charts, or diagrams for each slide
-            6. Use professional, engaging language with compelling insights
-            7. Include actionable takeaways and practical recommendations
-            8. Ensure smooth logical flow with clear transitions between concepts
-            9. Make content educational, visually appealing, and valuable"""
+            🚀 EXCELLENCE STANDARDS:
+            📊 Structure: 7-10 comprehensive slides with logical progression
+            🎯 Content Quality: Each slide has 4-6 substantial, research-backed bullet points
+            🎨 Visual Design: Professional image suggestions that enhance understanding
+            🌈 Theme Psychology: Choose colors strategically:
+               • Blue: Technology, trust, healthcare, finance
+               • Green: Environment, growth, wellness, sustainability  
+               • Red: Energy, leadership, marketing, innovation
+               • Purple: Creativity, luxury, spirituality, premium brands
+               • Orange: Education, enthusiasm, food, creativity
+               • Teal: Modern tech, communication, balance, clarity
+            
+            💎 PREMIUM CONTENT REQUIREMENTS:
+            - Start with compelling hook/introduction slide
+            - Include statistics, case studies, and expert insights
+            - Provide practical applications and real-world examples
+            - Add implementation steps and actionable recommendations
+            - End with powerful conclusions and next steps
+            - Ensure every bullet point delivers unique value
+            - Make content engaging, educational, and professionally credible
+            
+            🏆 Tony Stark Standard: Presentation-ready for any professional setting"""
             
             # Generate presentation content
             response = openai_client.chat.completions.create(
@@ -3737,17 +3746,32 @@ class Jarvis:
                 temperature=0.3
             )
             
-            # Parse the JSON response
+            # Parse the JSON response with robust error handling
             import json
-            try:
-                presentation_data = json.loads(response.choices[0].message.content.strip())
-            except json.JSONDecodeError:
-                # Fallback: extract content manually if JSON parsing fails
-                content = response.choices[0].message.content.strip()
-                return await self.create_basic_presentation(topic, content)
+            import re
             
-            # Create the actual PowerPoint file
-            ppt_path = await self.generate_powerpoint(presentation_data, topic)
+            raw_content = response.choices[0].message.content.strip()
+            print(f"🔍 DEBUG: Raw OpenAI response length: {len(raw_content)}")
+            print(f"🔍 DEBUG: First 200 chars: {raw_content[:200]}")
+            
+            try:
+                # Try to extract JSON from response (sometimes there's extra text)
+                json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    presentation_data = json.loads(json_str)
+                    print(f"✅ JSON parsed successfully! Title: {presentation_data.get('title', 'Unknown')}")
+                else:
+                    raise json.JSONDecodeError("No JSON found", raw_content, 0)
+                    
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"❌ JSON parsing failed: {e}")
+                print(f"🔧 Creating fallback presentation instead of showing raw JSON")
+                # Create a proper fallback instead of showing raw JSON
+                return await self.create_intelligent_fallback_presentation(topic, raw_content)
+            
+            # Create the actual PowerPoint file with web images
+            ppt_path = await self.generate_powerpoint_with_images(presentation_data, topic)
             
             return f"✅ Presentation Created Successfully!\n\n📊 **{presentation_data['title']}**\n📁 Location: {ppt_path}\n🎯 Slides: {len(presentation_data['slides'])}\n\n🚀 Opening presentation now..."
             
@@ -3756,7 +3780,7 @@ class Jarvis:
             return f"❌ Error creating presentation: {str(e)}"
     
     async def generate_powerpoint(self, presentation_data, topic):
-        """Generate the actual PowerPoint file using python-pptx"""
+        """Generate a STUNNING PowerPoint file with Tony Stark-level visual design"""
         try:
             from pptx import Presentation
             from pptx.util import Inches, Pt
@@ -3770,67 +3794,133 @@ class Jarvis:
             prs.slide_width = Inches(13.33)
             prs.slide_height = Inches(7.5)
             
-            # Enhanced slide creation with visual elements
+            # 🎨 ENHANCED THEMING SYSTEM - Tony Stark Level!
             theme_color = presentation_data.get('theme_color', 'blue')
             theme_rgb = self._get_theme_color_rgb(theme_color)
             
+            # Define theme-based color schemes
+            theme_schemes = {
+                'blue': {'primary': RGBColor(0, 120, 215), 'secondary': RGBColor(173, 216, 230), 'background': RGBColor(240, 248, 255), 'accent': RGBColor(0, 78, 152)},
+                'green': {'primary': RGBColor(16, 124, 16), 'secondary': RGBColor(152, 251, 152), 'background': RGBColor(240, 255, 240), 'accent': RGBColor(0, 100, 0)},
+                'red': {'primary': RGBColor(196, 30, 58), 'secondary': RGBColor(255, 182, 193), 'background': RGBColor(255, 240, 245), 'accent': RGBColor(139, 0, 0)},
+                'purple': {'primary': RGBColor(102, 45, 145), 'secondary': RGBColor(221, 160, 221), 'background': RGBColor(248, 240, 255), 'accent': RGBColor(75, 0, 130)},
+                'orange': {'primary': RGBColor(255, 140, 0), 'secondary': RGBColor(255, 218, 185), 'background': RGBColor(255, 248, 240), 'accent': RGBColor(255, 69, 0)},
+                'teal': {'primary': RGBColor(0, 128, 128), 'secondary': RGBColor(175, 238, 238), 'background': RGBColor(240, 255, 255), 'accent': RGBColor(0, 100, 100)}
+            }
+            
+            colors = theme_schemes.get(theme_color, theme_schemes['blue'])
+            
             for i, slide_data in enumerate(presentation_data['slides']):
                 if i == 0:
-                    # Enhanced Title slide
-                    slide_layout = prs.slide_layouts[0]  # Title slide layout
+                    # 🌟 STUNNING TITLE SLIDE
+                    slide_layout = prs.slide_layouts[0]
                     slide = prs.slides.add_slide(slide_layout)
                     
+                    # Apply beautiful background
+                    background = slide.background
+                    fill = background.fill
+                    fill.solid()
+                    fill.fore_color.rgb = colors['background']
+                    
+                    # Add gradient background rectangle for visual appeal
+                    from pptx.enum.shapes import MSO_SHAPE
+                    bg_shape = slide.shapes.add_shape(
+                        MSO_SHAPE.RECTANGLE, 
+                        Inches(0), Inches(0), 
+                        prs.slide_width, prs.slide_height
+                    )
+                    bg_fill = bg_shape.fill
+                    bg_fill.gradient()
+                    bg_fill.gradient_stops[0].color.rgb = colors['background']
+                    bg_fill.gradient_stops[1].color.rgb = colors['secondary']
+                    
+                    # Style the title magnificently
                     title = slide.shapes.title
-                    subtitle = slide.placeholders[1]
-                    
                     title.text = slide_data['title']
-                    # Enhanced subtitle with theme info
-                    subtitle_text = presentation_data.get('subtitle', f"Generated by JARVIS\n{datetime.now().strftime('%B %d, %Y')}")
-                    subtitle.text = subtitle_text + f"\n\n🎨 Theme: {theme_color.title()} | 🖼️ Images: Enhanced"
+                    title_frame = title.text_frame
+                    title_para = title_frame.paragraphs[0]
+                    title_para.font.size = Pt(48)
+                    title_para.font.bold = True
+                    title_para.font.color.rgb = colors['primary']
+                    title_para.alignment = PP_ALIGN.CENTER
                     
-                    # Style the title with theme color
-                    title.text_frame.paragraphs[0].font.size = Pt(44)
-                    title.text_frame.paragraphs[0].font.color.rgb = theme_rgb
+                    # Enhanced subtitle with professional styling
+                    subtitle = slide.placeholders[1]
+                    subtitle_text = presentation_data.get('subtitle', f"Generated by JARVIS AI\n{datetime.now().strftime('%B %d, %Y')}")
+                    subtitle.text = subtitle_text
+                    subtitle_frame = subtitle.text_frame
+                    subtitle_para = subtitle_frame.paragraphs[0]
+                    subtitle_para.font.size = Pt(24)
+                    subtitle_para.font.color.rgb = colors['accent']
+                    subtitle_para.alignment = PP_ALIGN.CENTER
                     
                 else:
-                    # Enhanced Content slide with image suggestions
-                    slide_layout = prs.slide_layouts[1]  # Title and content layout
+                    # 🎯 BEAUTIFUL CONTENT SLIDES
+                    slide_layout = prs.slide_layouts[1]
                     slide = prs.slides.add_slide(slide_layout)
                     
+                    # Apply themed background
+                    background = slide.background
+                    fill = background.fill
+                    fill.solid()
+                    fill.fore_color.rgb = colors['background']
+                    
+                    # Add subtle accent shape for visual interest  
+                    accent_shape = slide.shapes.add_shape(
+                        MSO_SHAPE.RECTANGLE,
+                        Inches(0), Inches(0),
+                        Inches(0.3), prs.slide_height
+                    )
+                    accent_fill = accent_shape.fill
+                    accent_fill.solid()
+                    accent_fill.fore_color.rgb = colors['primary']
+                    
+                    # Style the slide title beautifully
                     title = slide.shapes.title
-                    content = slide.placeholders[1]
-                    
                     title.text = slide_data['title']
+                    title_frame = title.text_frame
+                    title_para = title_frame.paragraphs[0]
+                    title_para.font.size = Pt(36)
+                    title_para.font.bold = True
+                    title_para.font.color.rgb = colors['primary']
                     
-                    # Enhanced content with image suggestions
-                    slide_content = slide_data['content']
+                    # Enhanced content formatting
+                    content = slide.placeholders[1]
+                    content.text = slide_data['content']
+                    content_frame = content.text_frame
+                    
+                    # Style each paragraph beautifully
+                    for paragraph in content_frame.paragraphs:
+                        paragraph.font.size = Pt(20)
+                        paragraph.font.color.rgb = RGBColor(64, 64, 64)  # Dark gray for readability
+                        paragraph.space_after = Pt(18)
+                        paragraph.line_spacing = 1.2
+                        
+                        # Add bullet styling
+                        paragraph.font.bold = False
+                    
+                    # Add visual enhancement indicators (if provided by OpenAI)
                     image_suggestion = slide_data.get('image_suggestion', '')
                     design_suggestion = slide_data.get('design_suggestion', '')
-                    visual_elements = slide_data.get('visual_elements', [])
                     
-                    # Add visual enhancement info to content
-                    enhanced_content = slide_content
-                    if image_suggestion:
-                        enhanced_content += f"\n\n📸 IMAGE SUGGESTION: {image_suggestion}"
-                    if design_suggestion:
-                        enhanced_content += f"\n🎨 DESIGN: {design_suggestion}"
-                    if visual_elements:
-                        visual_str = ", ".join(visual_elements)
-                        enhanced_content += f"\n✨ VISUALS: {visual_str}"
-                    
-                    content.text = enhanced_content
-                    
-                    # Style the content with theme color
-                    title.text_frame.paragraphs[0].font.size = Pt(32)
-                    title.text_frame.paragraphs[0].font.color.rgb = theme_rgb
-                    
-                    # Format bullet points
-                    text_frame = content.text_frame
-                    text_frame.text = slide_data['content']
-                    
-                    for paragraph in text_frame.paragraphs:
-                        paragraph.font.size = Pt(18)
-                        paragraph.space_after = Pt(12)
+                    if image_suggestion or design_suggestion:
+                        # Add a subtle note box for visual enhancements
+                        note_box = slide.shapes.add_textbox(
+                            Inches(8), Inches(5.5), Inches(4.5), Inches(1.5)
+                        )
+                        note_frame = note_box.text_frame
+                        note_frame.text = f"💡 Visual Enhancement:\n{image_suggestion}\n{design_suggestion}"
+                        
+                        # Style the note box
+                        note_para = note_frame.paragraphs[0]
+                        note_para.font.size = Pt(12)
+                        note_para.font.color.rgb = colors['accent']
+                        note_para.font.italic = True
+                        
+                        # Add subtle background to note box
+                        note_fill = note_box.fill
+                        note_fill.solid()
+                        note_fill.fore_color.rgb = RGBColor(248, 248, 248)
             
             # Save the presentation
             presentations_dir = Path.home() / "JARVIS_Presentations"
@@ -3856,46 +3946,328 @@ class Jarvis:
         except Exception as e:
             print(f"Error generating PowerPoint: {str(e)}")
             raise e
-    
-    async def create_basic_presentation(self, topic, content):
-        """Fallback method for creating presentations when JSON parsing fails"""
+
+    async def generate_powerpoint_with_images(self, presentation_data, topic):
+        """Generate PowerPoint with automatic web image downloading and insertion"""
         try:
             from pptx import Presentation
             from pptx.util import Inches, Pt
             from pptx.dml.color import RGBColor
+            from pptx.enum.text import PP_ALIGN
+            import requests
+            from io import BytesIO
+            from PIL import Image as PILImage
+            import os
+            
+            print(f"🖼️ Creating presentation with web images for: {topic}")
+            
+            # Create presentation object
+            prs = Presentation()
+            
+            # Set slide dimensions (16:9 aspect ratio)
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
+            
+            # 🎨 ENHANCED THEMING SYSTEM - Tony Stark Level!
+            theme_color = presentation_data.get('theme_color', 'blue')
+            
+            # Define theme-based color schemes
+            theme_schemes = {
+                'blue': {'primary': RGBColor(0, 120, 215), 'secondary': RGBColor(173, 216, 230), 'background': RGBColor(240, 248, 255), 'accent': RGBColor(0, 78, 152)},
+                'green': {'primary': RGBColor(16, 124, 16), 'secondary': RGBColor(152, 251, 152), 'background': RGBColor(240, 255, 240), 'accent': RGBColor(0, 100, 0)},
+                'red': {'primary': RGBColor(196, 30, 58), 'secondary': RGBColor(255, 182, 193), 'background': RGBColor(255, 240, 245), 'accent': RGBColor(139, 0, 0)},
+                'purple': {'primary': RGBColor(102, 45, 145), 'secondary': RGBColor(221, 160, 221), 'background': RGBColor(248, 240, 255), 'accent': RGBColor(75, 0, 130)},
+                'orange': {'primary': RGBColor(255, 140, 0), 'secondary': RGBColor(255, 218, 185), 'background': RGBColor(255, 248, 240), 'accent': RGBColor(255, 69, 0)},
+                'teal': {'primary': RGBColor(0, 128, 128), 'secondary': RGBColor(175, 238, 238), 'background': RGBColor(240, 255, 255), 'accent': RGBColor(0, 100, 100)}
+            }
+            
+            colors = theme_schemes.get(theme_color, theme_schemes['blue'])
+            
+            for i, slide_data in enumerate(presentation_data['slides']):
+                if i == 0:
+                    # 🌟 STUNNING TITLE SLIDE
+                    slide_layout = prs.slide_layouts[0]
+                    slide = prs.slides.add_slide(slide_layout)
+                    
+                    # Apply beautiful background
+                    background = slide.background
+                    fill = background.fill
+                    fill.solid()
+                    fill.fore_color.rgb = colors['background']
+                    
+                    # Style the title magnificently
+                    title = slide.shapes.title
+                    title.text = slide_data['title']
+                    title_frame = title.text_frame
+                    title_para = title_frame.paragraphs[0]
+                    title_para.font.size = Pt(48)
+                    title_para.font.bold = True
+                    title_para.font.color.rgb = colors['primary']
+                    title_para.alignment = PP_ALIGN.CENTER
+                    
+                    # Enhanced subtitle with professional styling
+                    subtitle = slide.placeholders[1]
+                    subtitle_text = presentation_data.get('subtitle', f"Generated by JARVIS AI\n{datetime.now().strftime('%B %d, %Y')}")
+                    subtitle.text = subtitle_text
+                    subtitle_frame = subtitle.text_frame
+                    subtitle_para = subtitle_frame.paragraphs[0]
+                    subtitle_para.font.size = Pt(24)
+                    subtitle_para.font.color.rgb = colors['accent']
+                    subtitle_para.alignment = PP_ALIGN.CENTER
+                    
+                else:
+                    # 🎯 BEAUTIFUL CONTENT SLIDES WITH WEB IMAGES
+                    slide_layout = prs.slide_layouts[1]
+                    slide = prs.slides.add_slide(slide_layout)
+                    
+                    # Apply themed background
+                    background = slide.background
+                    fill = background.fill
+                    fill.solid()
+                    fill.fore_color.rgb = colors['background']
+                    
+                    # Add subtle accent stripe for visual interest
+                    from pptx.shapes.autoshape import Shape
+                    try:
+                        accent_rect = slide.shapes.add_shape(
+                            1,  # Rectangle shape type
+                            Inches(0), Inches(0),
+                            Inches(0.3), prs.slide_height
+                        )
+                        accent_fill = accent_rect.fill
+                        accent_fill.solid()
+                        accent_fill.fore_color.rgb = colors['primary']
+                    except:
+                        pass  # Skip accent if shape creation fails
+                    
+                    # Style the slide title beautifully
+                    title = slide.shapes.title
+                    title.text = slide_data['title']
+                    title_frame = title.text_frame
+                    title_para = title_frame.paragraphs[0]
+                    title_para.font.size = Pt(36)
+                    title_para.font.bold = True
+                    title_para.font.color.rgb = colors['primary']
+                    
+                    # Enhanced content formatting
+                    content = slide.placeholders[1]
+                    content.text = slide_data['content']
+                    content_frame = content.text_frame
+                    
+                    # Style each paragraph beautifully
+                    for paragraph in content_frame.paragraphs:
+                        paragraph.font.size = Pt(20)
+                        paragraph.font.color.rgb = RGBColor(64, 64, 64)  # Dark gray for readability
+                        paragraph.space_after = Pt(18)
+                        paragraph.line_spacing = 1.2
+                    
+                    # 🖼️ DOWNLOAD AND INSERT WEB IMAGES
+                    image_suggestion = slide_data.get('image_suggestion', '')
+                    if image_suggestion:
+                        try:
+                            print(f"🔍 Searching for image: {image_suggestion}")
+                            image_path = await self.download_relevant_image(image_suggestion, i)
+                            if image_path and os.path.exists(image_path):
+                                # Insert image in the top-right corner
+                                slide.shapes.add_picture(
+                                    image_path,
+                                    Inches(8.5), Inches(1.5),  # Position
+                                    Inches(4), Inches(3)       # Size
+                                )
+                                print(f"✅ Image added to slide {i}")
+                            else:
+                                print(f"⚠️ Could not download image for slide {i}")
+                        except Exception as e:
+                            print(f"❌ Error adding image to slide {i}: {e}")
+            
+            # Save the presentation
+            presentations_dir = Path.home() / "JARVIS_Presentations"
+            presentations_dir.mkdir(exist_ok=True)
+            
+            # Generate filename
+            safe_topic = re.sub(r'[^\w\s-]', '', topic).strip()
+            safe_topic = re.sub(r'[-\s]+', '_', safe_topic)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+            filename = f"JARVIS_Presentation_{safe_topic[:20]}_{timestamp}.pptx"
+            ppt_path = presentations_dir / filename
+            
+            # Save the file
+            prs.save(str(ppt_path))
+            
+            # Open the presentation
+            os.startfile(str(ppt_path))
+            
+            return ppt_path
+            
+        except ImportError as ie:
+            print(f"❌ Import error: {ie}")
+            return "❌ Required libraries not installed. Please run: pip install python-pptx requests pillow"
+        except Exception as e:
+            print(f"❌ Error generating PowerPoint with images: {str(e)}")
+            # Fallback to basic PowerPoint generation
+            return await self.generate_powerpoint(presentation_data, topic)
+
+    async def download_relevant_image(self, image_query, slide_num):
+        """Download a relevant image from the web based on the query"""
+        try:
+            import requests
+            from io import BytesIO
+            from PIL import Image as PILImage
+            
+            # Use Unsplash API for high-quality, free images
+            # Note: For production, you'd want to use proper API keys
+            search_query = image_query.replace(' ', '+').replace(',', '+')
+            
+            # Try multiple image sources
+            image_urls = [
+                f"https://source.unsplash.com/800x600/?{search_query}",
+                f"https://source.unsplash.com/800x600/?{search_query.split()[0]}",
+                f"https://source.unsplash.com/800x600/?presentation,professional"
+            ]
+            
+            for url in image_urls:
+                try:
+                    print(f"🔄 Trying to download from: {url}")
+                    response = requests.get(url, timeout=10, headers={
+                        'User-Agent': 'JARVIS-AI-Assistant/1.0'
+                    })
+                    
+                    if response.status_code == 200:
+                        # Save image temporarily
+                        images_dir = Path.home() / "JARVIS_Presentations" / "temp_images"
+                        images_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        image_path = images_dir / f"slide_{slide_num}_image.jpg"
+                        
+                        # Process and save image
+                        img = PILImage.open(BytesIO(response.content))
+                        img = img.convert('RGB')
+                        img = img.resize((800, 600), PILImage.Resampling.LANCZOS)
+                        img.save(str(image_path), 'JPEG', quality=85)
+                        
+                        print(f"✅ Downloaded image: {image_path}")
+                        return image_path
+                        
+                except Exception as e:
+                    print(f"⚠️ Failed to download from {url}: {e}")
+                    continue
+            
+            print(f"❌ Could not download any image for: {image_query}")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error in download_relevant_image: {e}")
+            return None
+    
+    async def create_intelligent_fallback_presentation(self, topic, raw_content):
+        """Intelligent fallback that extracts useful content instead of showing raw JSON"""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+            from pptx.enum.text import PP_ALIGN
+            import re
+            
+            print(f"🔧 Creating intelligent fallback presentation for: {topic}")
+            
+            # Extract meaningful content from the raw response
+            lines = raw_content.split('\n')
+            title_content = f"Presentation: {topic.title()}"
+            content_lines = []
+            
+            # Extract bullet points or useful lines (skip JSON syntax)
+            for line in lines:
+                clean_line = line.strip()
+                # Skip JSON syntax lines
+                if (clean_line and 
+                    not clean_line.startswith('{') and 
+                    not clean_line.startswith('}') and 
+                    not clean_line.startswith('"') and
+                    not clean_line.endswith('",') and
+                    not clean_line.endswith('"') and
+                    len(clean_line) > 10 and
+                    ':' not in clean_line[:5]):  # Skip JSON key:value pairs
+                    content_lines.append(f"• {clean_line}")
+            
+            # If no good content found, use templates
+            if len(content_lines) < 3:
+                return await self.create_presentation_without_openai(topic)
             
             prs = Presentation()
             
-            # Title slide
+            # Beautiful title slide
             slide_layout = prs.slide_layouts[0]
             slide = prs.slides.add_slide(slide_layout)
+            
+            # Apply background
+            background = slide.background
+            fill = background.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(240, 248, 255)  # Light blue
+            
             title = slide.shapes.title
             subtitle = slide.placeholders[1]
-            title.text = f"Presentation: {topic.title()}"
-            subtitle.text = f"Generated by JARVIS\n{datetime.now().strftime('%B %d, %Y')}"
+            title.text = title_content
+            subtitle.text = f"Generated by JARVIS AI\n{datetime.now().strftime('%B %d, %Y')}\n\n⚡ Fallback Mode - Intelligent Content Extraction"
             
-            # Content slide with all content
+            # Style title
+            title_frame = title.text_frame
+            title_para = title_frame.paragraphs[0]
+            title_para.font.size = Pt(44)
+            title_para.font.bold = True
+            title_para.font.color.rgb = RGBColor(0, 120, 215)
+            title_para.alignment = PP_ALIGN.CENTER
+            
+            # Content slide
             slide_layout = prs.slide_layouts[1]
             slide = prs.slides.add_slide(slide_layout)
+            
+            # Apply background
+            background = slide.background
+            fill = background.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(240, 248, 255)
+            
             title = slide.shapes.title
             content_shape = slide.placeholders[1]
-            title.text = topic.title()
-            content_shape.text = content[:500] + "..." if len(content) > 500 else content
+            title.text = f"Key Points: {topic.title()}"
+            
+            # Join content lines with proper formatting
+            formatted_content = '\n'.join(content_lines[:8])  # Limit to 8 points
+            content_shape.text = formatted_content
+            
+            # Style content
+            title_frame = title.text_frame
+            title_para = title_frame.paragraphs[0]
+            title_para.font.size = Pt(32)
+            title_para.font.bold = True
+            title_para.font.color.rgb = RGBColor(0, 120, 215)
+            
+            content_frame = content_shape.text_frame
+            for paragraph in content_frame.paragraphs:
+                paragraph.font.size = Pt(18)
+                paragraph.font.color.rgb = RGBColor(64, 64, 64)
+                paragraph.space_after = Pt(12)
             
             # Save
             presentations_dir = Path.home() / "JARVIS_Presentations"
             presentations_dir.mkdir(exist_ok=True)
             safe_topic = re.sub(r'[^\w\s-]', '', topic).strip()[:20]
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-            filename = f"JARVIS_Basic_{safe_topic}_{timestamp}.pptx"
+            filename = f"JARVIS_Fallback_{safe_topic}_{timestamp}.pptx"
             ppt_path = presentations_dir / filename
             prs.save(str(ppt_path))
             os.startfile(str(ppt_path))
             
-            return f"✅ Basic presentation created: {ppt_path}"
+            return f"✅ Intelligent fallback presentation created: {ppt_path}"
             
         except Exception as e:
-            return f"❌ Error creating basic presentation: {str(e)}"
+            print(f"❌ Fallback presentation error: {str(e)}")
+            return f"❌ Error creating fallback presentation: {str(e)}"
+
+    async def create_basic_presentation(self, topic, content):
+        """Legacy fallback method - now redirects to intelligent fallback"""
+        return await self.create_intelligent_fallback_presentation(topic, content)
     
     # 🌐 BROWSER AUTOMATION SUITE - INTERNET SUPERPOWERS! 🌐
     
